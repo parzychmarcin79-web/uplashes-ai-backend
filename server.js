@@ -1,34 +1,20 @@
 const express = require("express");
 const cors = require("cors");
-const multer = require("multer");
 
 const app = express();
-const upload = multer();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Prosta trasa testowa — Render musi to widzieć
+// Endpoint testowy
 app.get("/", (req, res) => {
-  res.send("UPLashes backend działa");
+  res.send("UPLashes AI Backend działa poprawnie 💎");
 });
 
-// Główna trasa do analizy obrazu
-app.post("/analyze", upload.single("image"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "Brak pliku" });
-    }
+// Port z Render
+const port = process.env.PORT || 10000;
 
-    // ZWROT TESTOWY — tutaj potem podłączymy AI
-    return res.json({
-      analysis: "Analiza testowa działa — serwer online."
-    });
-
-  } catch (err) {
-    return res.status(500).json({ error: "Błąd serwera", details: err.message });
-  }
+app.listen(port, () => {
+  console.log(`UPLashes backend działa na porcie ${port}`);
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Backend UPLashes działa na porcie " + PORT));
