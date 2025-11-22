@@ -1,196 +1,196 @@
-// server.js – UPLashes AI backend (CommonJS, gotowy pod Render)
-// UPLashes AI – analiza stylizacji rzęs
+// UPLashes AI – backend analizy zdjęć rzęs
+// Wersja z rozszerzoną analizą:
+// A) Zaawansowana kontrola aplikacji (sklejenia, kierunki, odrosty, klej)
+// B) Rozpoznawanie jakości wachlarzy Mega Volume
+// C) Tryb Anime / Spike Lashes (jeśli styl jest w tę stronę)
 
-require("dotenv").config();
-
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const OpenAI = require("openai");
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import OpenAI from "openai";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
-// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }, // max 8 MB
-});
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Klient OpenAI
+// Port – Render zwykle używa zmiennej PORT, ale zostawiamy też domyślnie 10000
+const PORT = process.env.PORT || 10000;
+
+// Klient OpenAI – musi być ustawione OPENAI_API_KEY w Render (Environment)
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty health-check
 app.get("/", (req, res) => {
-  res.send("UPLashes AI backend działa ✅");
-});
-
-app.get("/ping", (req, res) => {
-  res.json({
-    ok: true,
-    message: "UPLashes AI backend działa i odpowiada na /ping",
-  });
+  res.send("UPLashes AI – backend działa ✅");
 });
 
 // GŁÓWNY ENDPOINT ANALIZY
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
-    // 1. Sprawdzenie, czy przyszło zdjęcie
     if (!req.file) {
-      return res.status(400).json({
-        ok: false,
-        error: "Brak pliku ze zdjęciem (pole 'image').",
-      });
+      return res.status(400).json({ error: "Brak zdjęcia." });
     }
 
-    // 2. Język z frontu (select) – "pl" albo "en"
-    const language = (req.body.language || "pl").toLowerCase();
+    const base64Image = req.file.buffer.toString("base64");
 
-    // 3. Konwersja obrazu do data URL dla modelu
-    const imageBase64 = req.file.buffer.toString("base64");
-    const imageUrl = `data:${req.file.mimetype};base64,${imageBase64}`;
+    const prompt = `
+Jesteś doświadczoną instruktorką stylizacji rzęs i edukatorką UPLashes.
+Analizujesz JEDNO zdjęcie oka klientki.
 
-    // 4. PROMPTY – logika, o którą prosiłaś (czy jest stylizacja, jaka, albo rekomendacja)
+ZASADY OGÓLNE:
 
-    const systemPromptPl = `
-Jesteś ekspertem UPLashes AI od stylizacji rzęs.
-Analizujesz JEDNO zdjęcie. ZAWSZE trzymaj się tego schematu:
+1) NAJPIERW SPRAWDŹ, CZY ZDJĘCIE JEST W OGÓLE POPRAWNE:
+   - Poprawne: wyraźne, w miarę bliskie zdjęcie jednego oka z rzęsami
+     (naturalne lub przedłużone).
+   - Niepoprawne: podłoga, ściana, całe selfie bez szczegółów oka,
+     dokument, tekst, coś zupełnie innego itp.
 
-1. Najpierw sprawdź, czy na zdjęciu widać oko i rzęsy.
-   - Jeśli NIE widać wyraźnie jednego oka z rzęsami (np. podłoga, twarz z daleka, bardzo rozmazane zdjęcie),
-     odpowiedz KRÓTKO, że nie możesz ocenić stylizacji i poproś o wyraźne zdjęcie jednego oka z bliska.
+   JEŚLI ZDJĘCIE JEST NIEPOPRAWNE:
+   👉 Odpowiedz TYLKO:
+   "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
+   I NIC WIĘCEJ NIE PISZ.
 
-2. Jeśli widać oko i rzęsy – oceń, czy są ZAŁOŻONE PRZEDŁUŻANE RZĘSY (stylizacja):
-   a) Jeśli NIE ma stylizacji (tylko naturalne rzęsy):
-      - POWIEDZ WPROST: nie widzisz założonych rzęs przedłużanych.
-      - Opisz naturalne rzęsy (gęstość, kierunek, kształt oka, linia rzęs).
-      - Zaproponuj 1–2 najlepiej pasujące rodzaje aplikacji:
-        • Classic 1:1
-        • Light Volume 2–3D
-        • Volume 4–6D
-        • Mega Volume 7D+
-      - Krótko uzasadnij, dlaczego taki wybór pasuje do oka na zdjęciu.
+2) JEŚLI ZDJĘCIE JEST POPRAWNE – NAJPIERW USTAL:
+   - Czy na rzęsach jest wykonana APLIKACJA (przedłużanie rzęs)?
+   - Czy rzęsy są NATURALNE, bez aplikacji (tylko naturalne rzęsy klientki)?
 
-   b) Jeśli SĄ przedłużane rzęsy:
-      - Nazwij typ aplikacji:
-        • Classic 1:1
-        • Light Volume 2–3D
-        • Volume 4–6D
-        • Mega Volume 7D+
-      - Jeśli możesz, podaj przybliżoną długość (np. 9–12 mm) i skręt (C, CC, D, L, LC itd.).
-        Jeśli nie jesteś pewien – wyraźnie napisz, że to szacunek.
-      - Oceń w punktach:
-        • Gęstość i pokrycie
-        • Kierunek i górna linia
-        • Mapowanie i styl
-        • Jakość przyklejenia
-        • Bezpieczeństwo i komfort (zaczerwienienia, podrażnienia)
+   Jeśli JEST aplikacja, spróbuj sklasyfikować:
+   - typ aplikacji:
+     • klasyczna 1:1
+     • light volume 2–3D
+     • volume 4–6D
+     • mega volume 7D+
+   - efekt/styl:
+     • naturalny
+     • delikatny volume
+     • mocny volume
+     • anime / spike lashes (wyraźne igiełki / kolce, mocno wystające długości)
+     • inny (opisz krótko)
 
-3. Na końcu daj 3–5 bardzo konkretnych wskazówek „Co możesz poprawić”.
+   Jeśli NIE MA aplikacji (same naturalne rzęsy):
+   - Traktuj to jako zdjęcie "before" – przygotowanie do stylizacji.
+   - Oceń:
+     • gęstość i długość naturalnych rzęs,
+     • kierunek wzrostu,
+     • ewentualne ubytki / przerzedzenia.
 
-Bądź konkretny, nie lej wody, nie wymyślaj rzeczy, których NIE widać na zdjęciu.
-Gdy czegoś nie możesz ocenić – powiedz to wprost.
-`.trim();
+   - Na tej podstawie zaproponuj:
+     • rekomendowany typ aplikacji (1:1 / 2–3D / większy volume / anime / spike),
+     • ogólny efekt (naturalny / bardziej widoczny / mocny / kreatywny),
+     • ważne uwagi dla stylistki (np. ostrożność przy słabych rzęsach).
 
-    const systemPromptEn = `
-You are UPLashes AI – an expert lash stylist assistant.
-You analyse ONE photo. ALWAYS follow this logic:
+3) CZĘŚĆ A – ZAAWANSOWANA KONTROLA APLIKACJI
+   (dotyczy tylko sytuacji, gdy na zdjęciu jest APLIKACJA rzęs)
 
-1. First check if there is a clear close-up of ONE eye with lashes.
-   - If you do NOT clearly see an eye with lashes (floor, full face from far away, very blurry photo, etc.),
-     reply with a SHORT message saying you cannot evaluate the styling and ask for a clear close-up of one eye.
+   Opisz konkretnie:
+   - SKLEJENIA:
+     • czy widać pojedyncze rzęsy sklejone ze sobą?
+     • czy są drobne sklejenia, czy poważne błędy?
+   - KIERUNKI:
+     • czy rzęsy idą w spójnym kierunku?
+     • czy są "uciekające" rzęsy w inną stronę?
+   - ODROSTY:
+     • czy widać już duże odrosty (rzęsy mocno odsunięte od linii powieki)?
+     • czy praca nadal wygląda świeżo?
+   - KLEJ:
+     • czy podstawy są czyste i schludne?
+     • czy widać nadmiar kleju, grudki, "bąble" przy nasadzie?
 
-2. If you can see the eye and lashes – detect whether there are EXTENSIONS:
-   a) If there are NO extensions (only natural lashes):
-      - SAY CLEARLY that you do not see any lash extensions.
-      - Describe the natural lashes (density, direction, eye shape, lash line).
-      - Recommend 1–2 best matching application types:
-        • Classic 1:1
-        • Light Volume 2–3D
-        • Volume 4–6D
-        • Mega Volume 7D+
-      - Briefly explain why this choice fits the eye in the photo.
+   Oceń krótko:
+   - największe plusy techniczne,
+   - najważniejsze błędy, które stylistka powinna poprawić w kolejnych pracach.
 
-   b) If there ARE lash extensions:
-      - Name the application type:
-        • Classic 1:1
-        • Light Volume 2–3D
-        • Volume 4–6D
-        • Mega Volume 7D+
-      - If possible, estimate lengths (e.g. 9–12 mm) and curl (C, CC, D, L, LC, etc.).
-        If you are not sure, explicitly say it is an estimate.
-      - Evaluate in bullet points:
-        • Density & coverage
-        • Direction & top line
-        • Mapping & style
-        • Attachment quality
-        • Safety & comfort (redness, irritation)
+4) CZĘŚĆ B – MEGA VOLUME (jeśli dotyczy)
+   Jeżeli aplikacja wygląda na:
+   - volume 4–6D lub szczególnie 7D+ (mega volume):
 
-3. Finish with 3–5 very concrete “What you can improve” tips.
+   Oceń jakość wachlarzy:
+   - czy wachlarze są równomierne i symetryczne?
+   - czy bazy wachlarzy są wąskie, czyste i dobrze osadzone?
+   - czy wachlarze nie są zbyt ciężkie dla naturalnych rzęs?
+   - czy gęstość jest dobrana estetycznie do oka klientki?
 
-Be concise and focused. Do NOT invent details that are not visible.
-If you cannot judge something, say it directly.
-`.trim();
+   Jeśli to klasyka lub bardzo delikatny volume i Mega Volume NIE DOTYCZY:
+   👉 Napisz wyraźnie:
+   "B) Mega Volume: nie dotyczy tej aplikacji."
 
-    const systemPrompt =
-      language === "en" || language === "english" ? systemPromptEn : systemPromptPl;
+5) CZĘŚĆ C – ANIME / SPIKE LASHES (jeśli dotyczy)
+   Jeżeli styl przypomina anime / spike (wyraźne "kolce"/spikes, mocno wystające długości):
 
-    // 5. Wywołanie modelu
-    const completion = await client.chat.completions.create({
+   Oceń:
+   - jakość spike'ów:
+     • czy są wyraźne, gładkie i równe?
+     • czy nie są posklejane w niekontrolowany sposób?
+   - rozmieszczenie spike'ów:
+     • czy są logicznie rozmieszczone w linii rzęs?
+     • czy odległości między spike'ami są estetyczne?
+   - wypełnienie między spike'ami:
+     • czy uzupełnienie jest równomierne?
+     • czy efekt nie jest zbyt ciężki lub zbyt pusty?
+
+   Jeśli styl NIE jest anime/spike:
+   👉 Napisz wyraźnie:
+   "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
+
+6) FORMA ODPOWIEDZI:
+   - Pisz po POLSKU.
+   - Pisz jak do stylistki rzęs (konkretnie, technicznie, ale życzliwie).
+   - Używaj krótkich sekcji i wypunktowań.
+   - Maksymalnie 12–15 zdań, bez lania wody.
+
+7) NA KOŃCU DODAJ KRÓTKIE PODSUMOWANIE:
+   - "Wstępna klasyfikacja aplikacji: …" (np. "light volume 2–3D, efekt naturalny")
+   - "Rekomendacja kolejnego kroku dla stylistki: …"
+`;
+
+    const response = await client.responses.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
+      input: [
         {
           role: "user",
           content: [
+            { type: "input_text", text: prompt },
             {
-              type: "text",
-              text:
-                language === "en"
-                  ? "Analyse these lashes according to the instructions."
-                  : "Przeanalizuj te rzęsy zgodnie z instrukcją.",
-            },
-            {
-              type: "image_url",
-              image_url: { url: imageUrl },
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${base64Image}`,
             },
           ],
         },
       ],
     });
 
-    const message = completion.choices[0]?.message;
-    let reportText = "";
+    // Próba wyciągnięcia tekstu z odpowiedzi
+    let analysis = "";
 
-    if (Array.isArray(message.content)) {
-      reportText = message.content
-        .filter((part) => part.type === "text" && part.text)
-        .map((part) => part.text)
+    if (response.output_text) {
+      analysis = response.output_text;
+    } else if (Array.isArray(response.output)) {
+      analysis = response.output
+        .flatMap((item) => item.content || [])
+        .map((c) => c.text || "")
         .join("\n\n");
     } else {
-      reportText = message.content || "";
+      analysis = "Brak odpowiedzi od modelu.";
     }
 
-    return res.json({
-      ok: true,
-      report: reportText,
+    res.json({
+      success: true,
+      analysis,
     });
-  } catch (err) {
-    console.error("Błąd /analyze:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Błąd podczas analizy zdjęcia w AI.UPLashes.",
+  } catch (error) {
+    console.error("Błąd w /analyze:", error);
+    res.status(500).json({
+      success: false,
+      error: "Błąd serwera podczas analizy zdjęcia.",
+      details: error.message,
     });
   }
 });
 
 // Start serwera
 app.listen(PORT, () => {
-  console.log(`UPLashes AI backend listening on port ${PORT}`);
+  console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
 });
