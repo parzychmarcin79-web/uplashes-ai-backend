@@ -1,5 +1,4 @@
-// UPLashes AI – backend analizy zdjęć rzęs
-// Plik: server.js
+// UPLashes AI – backend analizy zdjęć rzęs (CommonJS)
 
 const express = require("express");
 const cors = require("cors");
@@ -13,23 +12,22 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Multer – plik w pamięci, max 8 MB
+// Multer – trzymamy plik w pamięci, limit 8 MB
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 },
 });
 
-// Klient OpenAI – na Render musi być ustawiona zmienna OPENAI_API_KEY
+// Klient OpenAI – pamiętaj o zmiennej OPENAI_API_KEY na Render
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty endpoint testowy – strona główna
+// Prosty healthcheck
 app.get("/", (req, res) => {
   res.send("UPLashes AI backend działa ✅");
 });
 
-// Endpoint do sprawdzania statusu z frontendu
 app.get("/ping", (req, res) => {
   res.json({
     ok: true,
@@ -37,108 +35,121 @@ app.get("/ping", (req, res) => {
   });
 });
 
-// GŁÓWNY ENDPOINT ANALIZY
+// Funkcja budująca instrukcję dla modelu – PL/EN
+function buildPrompt(language) {
+  if (language === "en") {
+    return `
+You are an expert lash stylist and trainer. Analyze the lash extension work on this photo.
+
+1) DENSITY AND COVERAGE
+- Is the lash line well covered, or do you see gaps or sparse areas?
+- Does density match the chosen effect (natural / light volume / mega volume)?
+
+2) DIRECTION AND TOP LINE
+- Are lashes parallel and directed correctly?
+- Is the top line smooth and even?
+
+3) MAPPING AND STYLE
+- What style do you see (e.g. doll eye, cat eye, fox, eyeliner)?
+- Does the mapping look consistent on the whole eye?
+
+4) ATTACHMENT QUALITY
+- Do you see stickies, clumps or twisted fans?
+- Are the bases neat and well wrapped?
+
+5) HEALTH & SAFETY
+- Do you see redness, swelling or irritation on the eyelid?
+- Are lashes too heavy for the natural lashes?
+
+Give a short, clear analysis (max 10–12 sentences) plus 3–5 practical tips for improvement. Keep the tone kind but honest.`;
+  }
+
+  // domyślnie polski
+  return `
+Jesteś ekspertem od stylizacji rzęs i instruktorem. Na podstawie zdjęcia przeanalizuj stylizację rzęs.
+
+1) GĘSTOŚĆ I POKRYCIE
+- Czy linia rzęs jest dobrze pokryta, czy widać luki lub bardzo rzadkie miejsca?
+- Czy gęstość pasuje do wybranego efektu (naturalny / light volume / mega volume)?
+
+2) KIERUNEK I GÓRNA LINIA
+- Czy rzęsy są ustawione w podobnym kierunku, bez „krzyżowania się”?
+- Czy górna linia rzęs jest równa i estetyczna?
+
+3) MAPOWANIE I STYL
+- Jaki styl widzisz (np. doll eye, kocie oko, fox, eyeliner)?
+- Czy długości są rozłożone spójnie na całym oku?
+
+4) JAKOŚĆ PRZYKLEJENIA
+- Czy widać sklejenia, posklejane kępki lub skręcone wachlarzyki?
+- Czy podstawy są czyste i dobrze otulają rzęsę naturalną?
+
+5) BEZPIECZEŃSTWO I KOMFORT
+- Czy widać zaczerwienienie, opuchliznę lub podrażnienie powieki?
+- Czy rzęsy nie wyglądają na zbyt ciężkie dla rzęs naturalnych?
+
+Zrób krótką, konkretną analizę (maksymalnie 10–12 zdań) oraz wypisz 3–5 praktycznych wskazówek, jak poprawić pracę. Ton: wspierający, ale szczery.`;
+}
+
+// Główna trasa analizy – UWAGA: pole pliku **musi** nazywać się "image"
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
-    // 1. Sprawdzenie, czy jest plik
+    // Brak pliku
     if (!req.file) {
       return res.status(400).json({
         ok: false,
-        error: "Brak pliku obrazu. Upewnij się, że wysyłasz pole 'image'.",
+        error: "Brak pliku. Wyślij zdjęcie w polu 'image'.",
       });
     }
 
-    // 2. Język odpowiedzi – z frontendu przychodzi np. 'pl' lub 'en'
     const language = req.body.language === "en" ? "en" : "pl";
+    const prompt = buildPrompt(language);
 
-    // 3. Przygotowanie obrazu jako base64
-    const mimeType = req.file.mimetype || "image/jpeg";
     const base64Image = req.file.buffer.toString("base64");
-    const imageUrl = `data:${mimeType};base64,${base64Image}`;
+    const mimeType = req.file.mimetype || "image/jpeg";
 
-    // 4. Prompt dla modelu – BEZ kombinowania z dodatkowymi warunkami
-    const systemPrompt =
-      language === "pl"
-        ? `Jesteś ekspertem od stylizacji rzęs i instruktorem UPLashes.
-Analizujesz zdjęcie stylizacji rzęs (przedłużanie rzęs).
-
-Zawsze odpowiadaj po POLSKU.
-Jeśli naprawdę na zdjęciu NIE ma oka z rzęsami (np. jest tylko tło, twarz z daleka itp.),
-napisz uprzejmie: "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
-
-Jeśli rzęsy są widoczne, przeanalizuj stylizację według schematu:
-1) GĘSTOŚĆ I OBJĘTOŚĆ – czy ilość rzęs jest wystarczająca, czy są dziury, przerwy, nierówna gęstość.
-2) DŁUGOŚĆ I DOBÓR DO OKA – czy długość jest dobrana do oka i kondycji naturalnych rzęs, czy nie jest za ciężko.
-3) KIERUNKOWANIE I MAPOWANIE – czy rzęsy idą w tym samym kierunku, czy mapowanie (np. kącik wewn., środek, zewn.) jest spójne.
-4) JAKOŚĆ APLIKACJI – czy kępki są równe, czy nie ma sklejonych rzęs, czy są widoczne odstające kępki.
-5) SUGESTIE POPRAWY – konkretne wskazówki, co stylistka może zrobić lepiej przy kolejnej aplikacji.
-
-Pisz konkretnie, ale przyjaźnie – jak do stylistki, która chce się rozwijać.`
-        : `You are a professional lash extensions expert and trainer for the UPLashes brand.
-You analyse a photo of eyelash extensions.
-
-Always answer in ENGLISH.
-If the image truly does NOT contain an eye with lashes (e.g. only background, face from far away, etc.),
-politely say: "I cannot clearly see an eye with lashes to analyse. Please upload a close-up photo of one eye."
-
-If lashes are visible, analyse the set using this structure:
-1) DENSITY & VOLUME – is the amount of lashes sufficient, are there gaps or uneven density.
-2) LENGTH & SUITABILITY – is the length appropriate for the eye and natural lashes, is it too heavy.
-3) DIRECTION & MAPPING – are the lashes going in the same direction, is the mapping (inner corner, middle, outer corner) consistent.
-4) APPLICATION QUALITY – are the fans even, are there stickies, are there visible messy fans.
-5) SUGGESTIONS – concrete tips what the stylist can improve next time.
-
-Be specific and kind – like talking to a stylist who wants to grow.`;
-
-    // 5. Wywołanie modelu OpenAI z obrazem
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: systemPrompt },
+        {
+          role: "system",
+          content:
+            "Jesteś doświadczoną stylistką rzęs i instruktorem. Oceniasz jakość aplikacji na podstawie zdjęć i dajesz bardzo konkretne wskazówki.",
+        },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text:
-                language === "pl"
-                  ? "Oceń tę stylizację rzęs według schematu z promta."
-                  : "Evaluate this lash set using the structure from the system prompt.",
+              text: prompt,
             },
             {
               type: "image_url",
-              image_url: { url: imageUrl },
+              image_url: {
+                url: `data:${mimeType};base64,${base64Image}`,
+              },
             },
           ],
         },
       ],
-      max_tokens: 700,
     });
 
-    const answer = completion.choices?.[0]?.message?.content?.trim() || "";
+    const answer = completion.choices?.[0]?.message?.content || "";
 
-    if (!answer) {
-      return res.status(500).json({
-        ok: false,
-        error: "Brak odpowiedzi z modelu.",
-      });
-    }
-
-    // 6. Standardowa odpowiedź do frontendu
-    return res.json({
+    res.json({
       ok: true,
-      analysis: answer,
+      answer,
     });
   } catch (err) {
-    console.error("Błąd w /analyze:", err);
-    return res.status(500).json({
+    console.error("Error in /analyze:", err);
+    res.status(500).json({
       ok: false,
-      error: "Wystąpił błąd podczas analizy zdjęcia.",
+      error: "Błąd po stronie serwera podczas analizy zdjęcia.",
     });
   }
 });
 
 // Start serwera
 app.listen(PORT, () => {
-  console.log(`UPLashes AI backend nasłuchuje na porcie ${PORT}`);
+  console.log(`UPLashes AI backend działa na porcie ${PORT}`);
 });
