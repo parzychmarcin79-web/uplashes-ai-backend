@@ -1,10 +1,12 @@
-// UPLashes AI – backend analizy zdjęć rzęs (CommonJS)
+// UPLashes AI – backend analizy zdjęć rzęs
+// PLIK: server.js (wersja CommonJS – const require)
 
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
 
+// Konfiguracja aplikacji Express
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -12,22 +14,86 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci, limit 8 MB
+// Multer – plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// Klient OpenAI – pamiętaj o zmiennej OPENAI_API_KEY na Render
+// Klient OpenAI – na Render musi być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty healthcheck
+// SYSTEM PROMPT – OPCJA B + rozpoznanie typu zdjęcia
+// 3 scenariusze:
+//  A) zdjęcie NIE przedstawia oka z rzęsami → komunikat o braku możliwości oceny + OGÓLNE wskazówki
+//  B) zdjęcie przedstawia oko, ale BEZ aplikacji rzęs → opisz, że to naturalne rzęsy i zaproponuj rodzaj stylizacji
+//  C) zdjęcie przedstawia oko z APLIKACJĄ rzęs → pełna analiza (typ aplikacji + szczegółowa ocena)
+
+const SYSTEM_PROMPT = `
+Jesteś asystentem AI „UPLashes AI” należącym do marki UPLashes.
+Twoim zadaniem jest analiza ZDJĘĆ OKA z rzęsami oraz pomoc stylistkom rzęs.
+
+Użytkownik przesyła zdjęcie (lub czasem coś zupełnie innego!) oraz informację o języku odpowiedzi:
+- "pl" → odpowiadasz WYŁĄCZNIE po polsku,
+- "en" → odpowiadasz WYŁĄCZNIE po angielsku.
+
+Najpierw bardzo uważnie przeanalizuj obraz i zdecyduj, do którego scenariusza należy:
+
+SCENARIUSZ A – BRAK OKA / BRAK RZĘS / ZDJĘCIE NIEPRZYDATNE:
+- Na obrazku nie widać wyraźnie oka ani linii rzęs (np. podłoga, ściana, screenshot ekranu, twarz z bardzo daleka, kompletnie rozmazane itp.).
+- W TYM PRZYPADKU:
+  - NIE próbuj zgadywać gęstości, skrętu ani rodzaju aplikacji.
+  - Napisz krótki komunikat, że nie możesz ocenić stylizacji rzęs na podstawie tego zdjęcia
+    i poproś o wyraźne zdjęcie jednego oka z bliska.
+  - Następnie dodaj kilka OGÓLNYCH wskazówek do pracy stylistki (bez odniesienia do konkretnego zdjęcia).
+
+SCENARIUSZ B – OKO WIDOCZNE, ALE BEZ APLIKACJI RZĘS (NATURALNE RZĘSY):
+- Na zdjęciu widać oko i naturalne rzęsy, ale NIE widać wyraźnie założonej stylizacji (klasycznej lub objętościowej).
+- W TYM PRZYPADKU:
+  - Wyraźnie zaznacz, że widzisz naturalne rzęsy, a nie gotową aplikację.
+  - NIE opisuj istniejącej gęstości / skrętu / typu aplikacji – bo jej nie ma.
+  - Zamiast tego:
+    - krótko opisz, jak wyglądają naturalne rzęsy (np. gęstsze/rzadsze, krótsze/dłuższe, kierunek),
+    - zaproponuj JEDEN LUB DWA typy stylizacji, które mogłyby najlepiej pasować (np. klasyczne 1:1, lekkie 2–3D, mocniejsza objętość, mega volume),
+    - podaj krótkie wskazówki, na co stylistka powinna zwrócić uwagę przy planowaniu pracy.
+
+SCENARIUSZ C – OKO Z APLIKACJĄ RZĘS:
+- Na zdjęciu widać wyraźnie gotową stylizację rzęs (klasyczną lub objętościową).
+- W TYM PRZYPADKU zrób pełną analizę:
+  1) Na początku NAPISZ JASNO, JAKI TYP APLIKACJI WIDZISZ:
+     - naturalne rzęsy bez aplikacji,
+     - klasyczne 1:1,
+     - lekkie objętości 2–3D,
+     - standardowe objętości (np. 4–6D),
+     - mega volume (bardzo gęste, 7D i więcej),
+     - oraz w przybliżeniu skręt (np. C, CC, D) i charakter (naturalny, doll eye, kim, fox eye, itp.).
+  2) Następnie zrób szczegółową analizę w kilku punktach, w stylu:
+
+     ### Analiza stylizacji rzęs
+     1. **Gęstość i pokrycie** – oceń, czy linia rzęs jest równomiernie zagęszczona, czy są luki.
+     2. **Kierunek i górna linia** – oceń równość linii, kierunek rzęs, ewentualne krzyżowania.
+     3. **Mapowanie i styl** – opisz, jaki efekt/styl widzisz (naturalny, doll eye, kim, itp.), jak są rozłożone długości.
+     4. **Jakość przyklejenia** – czy widać sklejki, źle ułożone kępki, odstające rzęsy.
+     5. **Bezpieczeństwo i komfort** – czy widać podrażnienia powieki, zaczerwienienia, zbyt ciężkie kępki itp.
+
+     ### Wskazówki do poprawy
+     - Wymień konkretne, praktyczne wskazówki dla stylistki (co zrobić lepiej przy kolejnej aplikacji).
+
+WAŻNE:
+- ZAWSZE najpierw mentalnie wybierz scenariusz A, B albo C i dopiero potem twórz odpowiedź.
+- Jeśli wygląda na naturalne rzęsy bez stylizacji – traktuj to jako SCENARIUSZ B, a nie C.
+- Nie wymyślaj szczegółów, których nie da się zobaczyć (np. dokładnej długości w milimetrach).
+- Jeśli użytkownik wybrał język polski – pisz w 100% po polsku, jeśli angielski – w 100% po angielsku.
+`;
+
+// GET / – prosta informacja tekstowa
 app.get("/", (req, res) => {
   res.send("UPLashes AI backend działa ✅");
 });
 
+// GET /ping – endpoint health-check dla frontendu
 app.get("/ping", (req, res) => {
   res.json({
     ok: true,
@@ -35,121 +101,61 @@ app.get("/ping", (req, res) => {
   });
 });
 
-// Funkcja budująca instrukcję dla modelu – PL/EN
-function buildPrompt(language) {
-  if (language === "en") {
-    return `
-You are an expert lash stylist and trainer. Analyze the lash extension work on this photo.
-
-1) DENSITY AND COVERAGE
-- Is the lash line well covered, or do you see gaps or sparse areas?
-- Does density match the chosen effect (natural / light volume / mega volume)?
-
-2) DIRECTION AND TOP LINE
-- Are lashes parallel and directed correctly?
-- Is the top line smooth and even?
-
-3) MAPPING AND STYLE
-- What style do you see (e.g. doll eye, cat eye, fox, eyeliner)?
-- Does the mapping look consistent on the whole eye?
-
-4) ATTACHMENT QUALITY
-- Do you see stickies, clumps or twisted fans?
-- Are the bases neat and well wrapped?
-
-5) HEALTH & SAFETY
-- Do you see redness, swelling or irritation on the eyelid?
-- Are lashes too heavy for the natural lashes?
-
-Give a short, clear analysis (max 10–12 sentences) plus 3–5 practical tips for improvement. Keep the tone kind but honest.`;
-  }
-
-  // domyślnie polski
-  return `
-Jesteś ekspertem od stylizacji rzęs i instruktorem. Na podstawie zdjęcia przeanalizuj stylizację rzęs.
-
-1) GĘSTOŚĆ I POKRYCIE
-- Czy linia rzęs jest dobrze pokryta, czy widać luki lub bardzo rzadkie miejsca?
-- Czy gęstość pasuje do wybranego efektu (naturalny / light volume / mega volume)?
-
-2) KIERUNEK I GÓRNA LINIA
-- Czy rzęsy są ustawione w podobnym kierunku, bez „krzyżowania się”?
-- Czy górna linia rzęs jest równa i estetyczna?
-
-3) MAPOWANIE I STYL
-- Jaki styl widzisz (np. doll eye, kocie oko, fox, eyeliner)?
-- Czy długości są rozłożone spójnie na całym oku?
-
-4) JAKOŚĆ PRZYKLEJENIA
-- Czy widać sklejenia, posklejane kępki lub skręcone wachlarzyki?
-- Czy podstawy są czyste i dobrze otulają rzęsę naturalną?
-
-5) BEZPIECZEŃSTWO I KOMFORT
-- Czy widać zaczerwienienie, opuchliznę lub podrażnienie powieki?
-- Czy rzęsy nie wyglądają na zbyt ciężkie dla rzęs naturalnych?
-
-Zrób krótką, konkretną analizę (maksymalnie 10–12 zdań) oraz wypisz 3–5 praktycznych wskazówek, jak poprawić pracę. Ton: wspierający, ale szczery.`;
-}
-
-// Główna trasa analizy – UWAGA: pole pliku **musi** nazywać się "image"
+// POST /analyze – główny endpoint analizy obrazu
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
-    // Brak pliku
     if (!req.file) {
       return res.status(400).json({
         ok: false,
-        error: "Brak pliku. Wyślij zdjęcie w polu 'image'.",
+        error: "Brak pliku obrazu w żądaniu (pole 'image').",
       });
     }
 
-    const language = req.body.language === "en" ? "en" : "pl";
-    const prompt = buildPrompt(language);
+    const language = (req.body.language || "pl").toLowerCase();
+    const supportedLang = language === "en" ? "en" : "pl";
 
     const base64Image = req.file.buffer.toString("base64");
-    const mimeType = req.file.mimetype || "image/jpeg";
+    const imageUrl = `data:${req.file.mimetype};base64,${base64Image}`;
+
+    const userInstruction =
+      supportedLang === "pl"
+        ? "Przeanalizuj zdjęcie zgodnie z instrukcją systemową. Na końcu nie dodawaj żadnych podsumowań typu 'jako AI nie mogę...' – po prostu raport dla stylistki."
+        : "Analyse the image according to the system instructions. At the end do not add any meta-comments like 'as an AI model' – just give a clear report for the lash stylist.";
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
+      max_tokens: 900,
       messages: [
-        {
-          role: "system",
-          content:
-            "Jesteś doświadczoną stylistką rzęs i instruktorem. Oceniasz jakość aplikacji na podstawie zdjęć i dajesz bardzo konkretne wskazówki.",
-        },
+        { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: prompt,
-            },
+            { type: "text", text: `Language: ${supportedLang}\n\n${userInstruction}` },
             {
               type: "image_url",
-              image_url: {
-                url: `data:${mimeType};base64,${base64Image}`,
-              },
+              image_url: { url: imageUrl },
             },
           ],
         },
       ],
     });
 
-    const answer = completion.choices?.[0]?.message?.content || "";
+    const content = completion.choices?.[0]?.message?.content || "";
 
-    res.json({
+    return res.json({
       ok: true,
-      answer,
+      analysis: content,
     });
   } catch (err) {
-    console.error("Error in /analyze:", err);
-    res.status(500).json({
+    console.error("Błąd w /analyze:", err);
+    return res.status(500).json({
       ok: false,
-      error: "Błąd po stronie serwera podczas analizy zdjęcia.",
+      error: "Wystąpił błąd po stronie serwera podczas analizy.",
     });
   }
 });
 
-// Start serwera
+// Uruchomienie serwera
 app.listen(PORT, () => {
-  console.log(`UPLashes AI backend działa na porcie ${PORT}`);
+  console.log(`UPLashes AI backend listening on port ${PORT}`);
 });
