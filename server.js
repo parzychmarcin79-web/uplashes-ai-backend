@@ -1,42 +1,40 @@
-// UPLashes AI – backend analizy zdjęć rzęs
-// Wersja stabilna – gotowa do Render
+// --- UPLashes AI Backend ---
+// Pełny gotowy plik server.js (CJS + Render kompatybilny)
 
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const OpenAI = require("openai");
+const { OpenAI } = require("openai");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Multer – przechowywanie plików w RAM
+// Upload pliku do pamięci
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Klient OpenAI – Render pobierze OPENAI_API_KEY z Environmental Variables
+// Klient OpenAI (Render: dodaj OPENAI_API_KEY w Environment Variables)
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// TEST endpoint
+// Testowy endpoint — musi działać! 🔥
 app.get("/ping", (req, res) => {
-  res.json({ status: "UPLashes backend działa poprawnie" });
+  res.json({ status: "UPLashes AI backend działa poprawnie!" });
 });
 
-// ANALIZA ZDJĘCIA – główny endpoint
+// Endpoint analizy zdjęcia rzęs
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "Brak zdjęcia" });
+      return res.status(400).json({ error: "Brak obrazu" });
     }
 
-    // Konwersja zdjęcia do Base64
-    const base64Image = req.file.buffer.toString("base64");
+    const imageBase64 = req.file.buffer.toString("base64");
 
-    // Zapytanie do GPT-4o Vision
+    // 🔥 ANALIZA OBRAZU — GPT-4o
     const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -44,51 +42,40 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
           role: "user",
           content: [
             {
-              type: "input_text",
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${imageBase64}`,
+            },
+            {
+              type: "text",
               text: `
 Przeanalizuj stylizację rzęs według schematu:
 
-1) GĘSTOŚĆ I OBJĘTOŚĆ
-- Czy ilość rzęs jest wystarczająca?
-- Czy są widoczne przerwy?
+1) GĘSTOŚĆ I OBJĘTOŚĆ  
+2) KIERUNEK  
+3) SYMETRIA  
+4) DOPASOWANIE  
+5) OGÓLNA JAKOŚĆ
 
-2) KIERUNEK I SYMETRIA
-- Czy rzęsy są równe i skierowane w jednym kierunku?
-
-3) PRZYCZEPIENIE I KĄT
-- Czy kępki są poprawnie zaczepione?
-
-4) STAN NATURALNYCH RZĘS
-- Czy są oznaki uszkodzeń?
-
-Na końcu dodaj:
-- KRÓTKIE PODSUMOWANIE
-- 3 REKOMENDACJE UPLashes (np. klej, bonder, typ rzęs)
+Zwróć odpowiedź w bardzo profesjonalnym stylu.
               `,
             },
-            { 
-              type: "input_image",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-              }
-            }
           ],
         },
       ],
-      max_tokens: 500,
+      max_tokens: 400,
     });
 
-    const analysis = response.choices?.[0]?.message?.content || "Brak odpowiedzi";
-
-    res.json({ success: true, analysis });
-
+    res.json({
+      success: true,
+      analysis: response.choices[0].message.content,
+    });
   } catch (error) {
     console.error("Błąd analizy:", error);
-    res.status(500).json({ error: "Błąd przetwarzania zdjęcia" });
+    res.status(500).json({ error: "Błąd serwera analizy" });
   }
 });
 
 // Start serwera
 app.listen(PORT, () => {
-  console.log(`UPLashes AI backend działa na porcie ${PORT}`);
+  console.log("UPLashes AI backend działa na porcie:", PORT);
 });
