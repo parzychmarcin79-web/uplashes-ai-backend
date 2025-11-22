@@ -1,10 +1,10 @@
 // UPLashes AI – backend analizy zdjęć rzęs
-// Plik: server.js (wersja CommonJS – const require)
+// Wersja ES Module (działa z "type": "module" w package.json)
 
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const OpenAI = require("openai");
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import OpenAI from "openai";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -14,31 +14,32 @@ app.use(cors());
 app.use(express.json());
 
 // Multer – plik w pamięci
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
-});
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Klient OpenAI – na Render musi być ustawiona zmienna OPENAI_API_KEY
+// Klient OpenAI – pamiętaj o zmiennej OPENAI_API_KEY na Render
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// PROSTE ENDPOINTY TESTOWE – żeby nie było "Cannot GET /"
+// Prosty root – żeby nie było "Cannot GET /"
 app.get("/", (req, res) => {
-  res.send("UPLashes AI backend – OK");
+  res.send("UPLashes AI backend działa ✅");
 });
 
+// /ping – szybki test zdrowia serwera
 app.get("/ping", (req, res) => {
-  res.json({ ok: true, message: "UPLashes AI backend – ping OK" });
+  res.json({
+    ok: true,
+    message: "UPLashes AI backend działa i odpowiada na /ping",
+  });
 });
 
 /**
  * GŁÓWNY ENDPOINT DO ANALIZY ZDJĘCIA
- * Oczekuje:
- *  - pole "image" (plik)
- *  - body.language: "pl" lub "en" (opcjonalne, domyślnie "pl")
- *  - body.analysisType: "before" albo "after" (opcjonalne, domyślnie "after")
+ * POST /analyze
+ * - field "image" (plik)
+ * - body.language: "pl" lub "en"
+ * - body.analysisType: "before" albo "after"
  */
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
@@ -47,66 +48,62 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
     }
 
     const { language = "pl", analysisType = "after" } = req.body;
-
     const base64Image = req.file.buffer.toString("base64");
+
     const langLabel = language === "en" ? "English" : "Polski";
 
     const systemPrompt = `
-You are a highly experienced lash stylist and educator.
-You analyze eye photos and give clear, professional feedback tailored for lash stylists.
-Always answer in the requested language: ${langLabel}.
+Jesteś doświadczoną stylistką rzęs i instruktorem.
+Analizujesz zdjęcie oka i dajesz konkretne, profesjonalne wskazówki dla stylistek.
+Zawsze odpowiadasz w języku: ${langLabel}.
 `;
 
     const userPrompt = `
-We are analyzing a close-up eye photo for lash styling.
+Analizujemy zbliżenie jednego oka pod kątem stylizacji rzęs.
 
-VERY IMPORTANT – FOLLOW THESE RULES STRICTLY:
+BARDZO WAŻNE – ZASADY:
 
-1) FIRST CHECK IF THE PHOTO IS VALID:
-   - Valid photo = close-up of ONE eye with natural lashes or lash extensions,
-     clearly visible lash line and eyelid.
-   - If the photo does NOT show an eye with lashes (for example: floor, wall,
-     face without visible eye, text, random object, etc.):
-     -> Answer ONLY with a short message like:
-        "${
-          language === "en"
-            ? "I can't see an eye with lashes to analyze. Please upload a close-up photo of one eye."
-            : "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
+1) Najpierw sprawdź, czy zdjęcie jest poprawne:
+   - Poprawne = zbliżenie JEDNEGO oka, widać rzęsy (naturalne lub przedłużane),
+     linię rzęs i powiekę.
+   - Jeśli NIE widać oka z rzęsami (np. podłoga, ściana, tekst, przedmiot):
+     -> Odpowiedz tylko krótką wiadomością:
+        "${language === "en"
+          ? "I can't see an eye with lashes to analyze. Please upload a close-up photo of one eye."
+          : "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
         }"
-     -> Do NOT invent any lash analysis in this case.
+     -> NIE wymyślaj żadnej analizy stylizacji.
 
-2) IF THE PHOTO IS VALID – DO A FULL ANALYSIS.
-   Use the requested analysis type:
+2) Jeśli zdjęcie jest poprawne – pełna analiza.
 
-   - analysisType = "before":
-     Treat this as a PRE-APPLICATION consultation.
-     Look mainly at:
-       • natural lash length and density,
-       • eye and eyelid shape,
-       • lash direction and health.
-     Then give:
-       • recommended mapping (lengths, curls, thickness, effect),
-       • suggestions for styling (e.g. natural, doll eye, fox, etc.),
-       • warnings (if lashes are weak, very short, damaged),
-       • practical tips for stylist before application.
+   analysisType = "before":
+   - Traktuj jako konsultację PRZED aplikacją.
+   - Oceń:
+       • długość i gęstość naturalnych rzęs,
+       • kształt oka i powieki,
+       • kierunek rzęs, ich kondycję.
+   - Podaj:
+       • rekomendowane skręty, długości, grubości i efekt (np. natural, doll, fox),
+       • ostrzeżenia, jeśli rzęsy są słabe/zniszczone,
+       • praktyczne wskazówki dla stylistki przed aplikacją.
 
-   - analysisType = "after":
-     Treat this as an evaluation of DONE WORK.
-     Look at:
-       • density and evenness,
-       • directions and symmetry (inner/outer corners),
-       • attachment area (distance from skin, neatness),
-       • fans quality (for volume),
-       • overall effect vs. natural anatomy of the eye.
-     Then give:
-       • biggest pluses,
-       • most important mistakes,
-       • clear suggestions how to improve next set.
+   analysisType = "after":
+   - Traktuj jako ocenę WYKONANEJ stylizacji.
+   - Oceń:
+       • gęstość i równomierność,
+       • kierunki i symetrię (wewn./zewn. kącik),
+       • odległość od skóry, czystość aplikacji,
+       • jakość kępek (przy volume),
+       • czy efekt pasuje do budowy oka.
+   - Podaj:
+       • największe plusy,
+       • najważniejsze błędy,
+       • konkretne wskazówki, jak poprawić kolejną aplikację.
 
-3) STYLE:
-   - Be kind but concrete – this is feedback for a lash stylist.
-   - Use bullet points and short sections.
-   - Write in ${langLabel}.
+3) Styl:
+   - bądź życzliwa, ale konkretna,
+   - używaj wypunktowań i krótkich sekcji,
+   - pisz w języku: ${langLabel}.
 `;
 
     const response = await client.responses.create({
@@ -129,35 +126,28 @@ VERY IMPORTANT – FOLLOW THESE RULES STRICTLY:
       ],
     });
 
-    // Wyciągamy tekst z odpowiedzi
+    // Wyciągnięcie tekstu z odpowiedzi
     let analysis =
       response.output_text ||
       (response.output &&
         Array.isArray(response.output) &&
         response.output
           .flatMap((item) => item.content || [])
-          .map((c) => c.text || "")
+          .map((c) => c.text)
           .join("\n\n")) ||
       "Brak odpowiedzi od modelu.";
 
-    // Zwracamy w dwóch polach, żeby pasowało do starego frontu
-    res.json({ success: true, analysis, result: analysis });
+    res.json({ analysis, result: analysis });
   } catch (error) {
     console.error("SERVER ERROR /analyze:", error);
     res.status(500).json({
-      success: false,
       error: "Błąd analizy AI.",
       details: error.message,
     });
   }
 });
 
-// Fallback na nieistniejące ścieżki
-app.use((req, res) => {
-  res.status(404).json({ error: "Taki endpoint nie istnieje." });
-});
-
 // Start serwera
 app.listen(PORT, () => {
-  console.log("Backend UPLashes AI działa na porcie " + PORT);
+  console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
 });
