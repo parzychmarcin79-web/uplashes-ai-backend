@@ -2,7 +2,7 @@
 // Wersja z rozszerzoną analizą:
 // A) Zaawansowana kontrola aplikacji (sklejenia, kierunki, odrosty, klej)
 // B) Rozpoznawanie jakości wachlarzy Mega Volume
-// C) Tryb Anime / Spike Lashes (jeśli styl jest w tę stronę)
+// C) Tryb Anime / Spike Lashes
 
 require("dotenv").config();
 const express = require("express");
@@ -10,21 +10,25 @@ const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
 
+// --- konfiguracja podstawowa ---
+
 const app = express();
+const PORT = process.env.PORT || 10000;
+
 app.use(cors());
 app.use(express.json());
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
+});
 
-// Port – Render zwykle używa zmiennej PORT, ale zostawiamy też domyślnie 10000
-const PORT = process.env.PORT || 10000;
-
-// Klient OpenAI – musi być ustawione OPENAI_API_KEY w Render (Environment)
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty healthcheck
+// --- zdrowie serwera ---
+
 app.get("/", (req, res) => {
   res.send("UPLashes AI – backend działa ✅");
 });
@@ -36,7 +40,8 @@ app.get("/ping", (req, res) => {
   });
 });
 
-// GŁÓWNY ENDPOINT ANALIZY
+// --- główny endpoint analizy ---
+
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -45,131 +50,78 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const base64Image = req.file.buffer.toString("base64");
 
-    // ---------- TUTAJ JEST JEDEN, CZYSTY PROMPT ----------
-    const prompt = `
-Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
-
-ZASADA OGÓLNA:
-- Twoim zadaniem jest **analiza jednej powieki** (jednego oka) na zdjęciu.
-- Oceniasz tylko to, co REALNIE widzisz na zdjęciu – nie wymyślaj informacji.
-- Pisz po POLSKU, w prostym języku, jak do stylistki rzęs (ale profesjonalnie).
-
-KROK 1 – ROZPOZNAJ, CZY NA ZDJĘCIU JEST STYLIZACJA RZĘS:
-1. Sprawdź, czy widzisz:
-   - założone rzęsy przedłużane (syntetyczne / eyelash extensions),
-   - czy tylko naturalne rzęsy bez aplikacji,
-   - czy zdjęcie jest zbyt słabe / niewyraźne, aby ocenić.
-2. Jeśli NIE widzisz wyraźnie oka z rzęsami lub zdjęcie jest przypadkowe (podłoga, twarz z daleka, ekran komputera itp.):
-   - napisz krótko, że nie możesz ocenić stylizacji,
-   - poproś o wyraźne zdjęcie jednego oka z bliska.
-3. Jeśli widzisz tylko NATURALNE rzęsy (bez aplikacji):
-   - wyjaśnij, że na zdjęciu nie widzisz stylizacji rzęs,
-   - zaproponuj 1–2 pasujące TYPY aplikacji do tego oka (np. Klasyczne 1:1 / Light Volume 2–3D / Anime / Mega Volume itp.),
-   - daj krótkie uzasadnienie.
-
-KROK 2 – JEŚLI WIDZISZ STYLIZACJĘ, NAJPIERW SKLASYFIKUJ TYP APLIKACJI:
-1. Określ, czy na zdjęciu najprawdopodobniej jest:
-   - **Klasyczna 1:1**
-   - **Light Volume 2–3D**
-   - **Volume 4–6D**
-   - **Mega Volume 7D+**
-2. Dodatkowo zaznacz, czy stylizacja wygląda na:
-   - **Anime / Spike Lashes** (charakterystyczne kolce / spajki, mocno zaznaczone „spikes”),
-   - czy raczej klasyczne/miękkie volume bez efektu Anime.
-3. Jeśli nie możesz mieć pewności, napisz jasno, że to szacunkowa ocena na podstawie zdjęcia.
-
-KROK 3 – ZAAWANSOWANA ANALIZA APLIKACJI (A – kontrola techniczna):
-Skup się na następujących elementach i każdy oceń osobno:
-
-1. **Gęstość i pokrycie linii rzęs**
-   - Czy linia rzęs jest równomiernie pokryta?
-   - Czy są wyraźne luki, „dziury” lub miejsca bardzo przerzedzone?
-
-2. **Kierunek i ustawienie rzęs**
-   - Czy rzęsy są równoległe i patrzą w podobnym kierunku?
-   - Czy widać „krzyżowanie się” rzęs lub pojedyncze rzęsy uciekające w inną stronę?
-
-3. **Mapowanie i dobór długości**
-   - Czy długości przechodzą płynnie, bez gwałtownych skoków?
-   - Czy mapowanie pasuje do kształtu oka (np. doll eye, squirrel, cat eye – nie musisz koniecznie nazywać, jeśli nie jesteś pewien)?
-
-4. **Przyklejenie i SKLEJENIA (bardzo ważne)**
-   - Czy widzisz ślady możliwych sklejeń (naturalne rzęsy przyklejone do siebie lub kilka rzęs naturalnych zlepionych jednym wachlarzem)?
-   - Jeśli tak – opisz to delikatnie i zaproponuj, jak tego uniknąć (np. dokładniejsza separacja, wolniejsze tempo, inny klej).
-
-5. **Odrosty i „przyczepienie” rzęs**
-   - Czy widzisz rzęsy, które wyglądają na mocno odrośnięte – wachlarz „odstaje” od linii powieki?
-   - Jeśli tak, zasugeruj wymianę / korektę przy kolejnym uzupełnieniu.
-
-6. **Klej – ilość i estetyka**
-   - Czy widać zgrubienia kleju, „kuleczki”, białe lub błyszczące ślady?
-   - Napisz, czy ilość kleju wydaje się odpowiednia, czy może zbyt duża i wpływa na estetykę.
-
-KROK 4 – JAKOŚĆ WACHLARZY MEGA VOLUME (B – tylko jeśli to wygląda na Volume lub Mega Volume):
-Jeśli stylizacja wygląda na **Volume / Mega Volume**, oceń dodatkowo:
-1. Czy wachlarze są:
-   - równomiernie rozłożone,
-   - mają symetryczne nóżki,
-   - nie są zbyt zbite (brak „kikutów” zamiast wachlarzy).
-2. Czy wachlarze nie są:
-   - zbyt ciężkie do naturalnych rzęs (mogą wyglądać ociężale),
-   - nieregularne (raz mega gęste, raz bardzo rzadkie).
-3. Napisz, czy ogólna jakość wachlarzy wygląda na:
-   - **bardzo dobrą**,  
-   - **poprawną**,  
-   - czy **wymaga pracy** – i podaj konkretne wskazówki, co poprawić.
-
-KROK 5 – TRYB ANIME / SPIKE LASHES (C – jeśli widzisz spajki / kolce):
-Jeśli stylizacja wygląda na **Anime / Spike** lub ma wyraźne kolce:
-1. Oceń:
-   - rozmieszczenie spikes (czy są równomierne),
-   - kontrast między spikes a tłem delikatniejszych rzęs,
-   - czy kolce są wyraźne, ale estetyczne.
-2. Podpowiedz:
-   - jak poprawić kształt i gładkość kolców,
-   - jak dobrać gęstość tła (volume między kolcami), aby efekt był spójny.
-
-KROK 6 – FORMAT ODPOWIEDZI:
-Zwracaj odpowiedź w formie krótkiego raportu w Markdown, mniej więcej w tej strukturze:
-
-### AI.UPLashes REPORT
-
-1. **Czy widzę stylizację?**  
-   - Krótka informacja, czy to przedłużane rzęsy, naturalne, czy zdjęcie jest nieprzydatne.
-
-2. **Typ stylizacji (jeśli jest):**  
-   - Rodzaj: Klasyczna 1:1 / Light Volume 2–3D / Volume 4–6D / Mega Volume 7D+  
-   - Czy jest efekt Anime / Spike: tak/nie (krótkie wyjaśnienie).
-
-3. **Analiza techniczna:**  
-   - Gęstość i pokrycie  
-   - Kierunek i ustawienie  
-   - Mapowanie i długości  
-   - Sklejone rzęsy / separacja  
-   - Odrosty  
-   - Klej
-
-4. **Jakość wachlarzy (jeśli Volume/Mega):**  
-   - Jakość, regularność, ciężkość wachlarzy  
-   - Krótka ocena ogólna.
-
-5. **Tryb Anime / Spike (jeśli dotyczy):**  
-   - Co jest dobre, co można dopracować.
-
-6. **Najważniejsze wskazówki do poprawy (max 3–5 punktów):**  
-   - Konkretne, praktyczne rady dla stylistki, bez krytykowania klientki ani samej stylistki.
-
-Pamiętaj: bądź pomocny, konkretny i życzliwy. Nie wymyślaj rzeczy, których nie widać na zdjęciu.
-    `.trim();
-    // ---------- KONIEC PROMPTU ----------
+    const systemPrompt =
+      "Jesteś ekspertem UPLashes AI od zaawansowanej analizy stylizacji rzęs na zdjęciach. " +
+      "Zawsze analizujesz JEDNO oko / jedną powiekę. Pisz po polsku, prostym językiem, ale profesjonalnie – tak jak do stylistki rzęs. " +
+      "\n\n" +
+      "KROK 1 – Najpierw oceń, czy zdjęcie w ogóle nadaje się do analizy. " +
+      "Poprawne zdjęcie: wyraźne, w miarę bliskie ujęcie jednego oka z rzęsami (naturalne lub przedłużone). " +
+      "Niepoprawne zdjęcie: podłoga, ściana, całe selfie bez szczegółów oka, ekran, dokument, tekst, itp. " +
+      "Jeśli zdjęcie jest niepoprawne i nie widzisz wyraźnie oka z rzęsami, odpowiedz tylko jednym zdaniem: " +
+      "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska. " +
+      "W takim przypadku NIC WIĘCEJ nie dopisuj." +
+      "\n\n" +
+      "KROK 2 – Jeśli zdjęcie jest poprawne, ustal co widzisz: " +
+      "1) Czy na rzęsach jest wykonana aplikacja (przedłużanie rzęs)? " +
+      "2) Czy są to tylko naturalne rzęsy bez aplikacji? " +
+      "Jeśli widzisz tylko naturalne rzęsy bez stylizacji, napisz krótko, że nie ma aplikacji, " +
+      "oceń gęstość i długość naturalnych rzęs oraz zaproponuj 1–2 typy aplikacji (np. Klasyczne 1:1, Light Volume 2–3D, Anime, Mega Volume) " +
+      "pasujące do tego oka, z krótkim uzasadnieniem." +
+      "\n\n" +
+      "KROK 3 – Jeśli widzisz aplikację, spróbuj ją sklasyfikować: " +
+      "• rodzaj: Klasyczna 1:1, Light Volume 2–3D, Volume 4–6D, Mega Volume 7D+ " +
+      "• styl/efekt: naturalny, delikatny volume, mocny volume, Anime / Spike Lashes (widoczne kolce/spikes), inny (opisz krótko). " +
+      "Jeśli nie jesteś pewny, napisz, że to szacunkowa ocena na podstawie zdjęcia." +
+      "\n\n" +
+      "KROK 4 – CZĘŚĆ A: zaawansowana kontrola aplikacji (dotyczy tylko, gdy jest aplikacja). Opisz: " +
+      "• Gęstość i pokrycie: czy linia rzęs jest równomiernie pokryta, czy widać dziury/przerzedzenia. " +
+      "• Kierunek: czy rzęsy patrzą w podobnym kierunku, czy są rzęsy uciekające lub krzyżujące się. " +
+      "• Mapowanie i długości: czy przejścia długości są płynne, czy mapowanie pasuje do oka, czy nie ma gwałtownych skoków. " +
+      "• Sklejone rzęsy: czy widać sklejenia kilku naturalnych rzęs, lub wachlarze przyklejone nieprawidłowo. " +
+      "• Odrosty: czy widzisz odrosty – rzęsy wyglądające na mocno odsunięte od linii powieki. " +
+      "• Klej: czy podstawy są czyste, czy widać grudki, kuleczki kleju, błyszczące zgrubienia. " +
+      "Wymień największe plusy techniczne oraz 2–3 najważniejsze rzeczy do poprawy." +
+      "\n\n" +
+      "KROK 5 – CZĘŚĆ B: jakość wachlarzy Volume / Mega Volume. " +
+      "Stosuj tę część tylko, gdy stylizacja wygląda na Volume (4–6D) lub Mega Volume (7D+). " +
+      "Oceń: czy wachlarze są równomierne, symetryczne, czy nie są zbyt zbite (kikut zamiast wachlarza), " +
+      "czy bazy wachlarzy są wąskie i czyste, oraz czy wachlarze nie są zbyt ciężkie dla naturalnych rzęs. " +
+      "Napisz krótko ogólną ocenę jakości wachlarzy: bardzo dobra, poprawna, wymaga pracy. " +
+      "Jeśli aplikacja jest klasyczna lub bardzo delikatny volume, napisz wyraźnie: B) Mega Volume: nie dotyczy tej aplikacji." +
+      "\n\n" +
+      "KROK 6 – CZĘŚĆ C: tryb Anime / Spike Lashes. " +
+      "Jeśli stylizacja ma wyraźne kolce/spikes w stylu Anime, oceń: " +
+      "• jakość kolców: czy są wyraźne, gładkie i równe, czy nie są przypadkowymi sklejeniami, " +
+      "• rozmieszczenie: czy spikes są rozmieszczone logicznie i estetycznie wzdłuż linii rzęs, " +
+      "• wypełnienie między spike'ami: czy volume pomiędzy jest równomierny, czy efekt nie jest zbyt ciężki lub zbyt pusty. " +
+      "Jeśli styl nie jest Anime/Spike, napisz jasno: C) Anime / Spike Lashes: nie dotyczy tego zdjęcia." +
+      "\n\n" +
+      "KROK 7 – Forma odpowiedzi. " +
+      "Zwróć odpowiedź w formie krótkiego raportu w stylu Markdown, ale bez używania znaku backtick (`). " +
+      "Użyj mniej więcej takiej struktury: " +
+      "1. Czy widzę stylizację – jedno–dwa zdania. " +
+      "2. Typ stylizacji – rodzaj aplikacji i czy jest efekt Anime/Spike. " +
+      "3. Analiza techniczna – gęstość, kierunek, mapowanie, sklejenia, odrosty, klej. " +
+      "4. Jakość wachlarzy (jeśli Volume/Mega) – krótka ocena. " +
+      "5. Tryb Anime / Spike (jeśli dotyczy) – co jest dobre, co poprawić. " +
+      "6. Najważniejsze wskazówki – 3–5 konkretnych porad dla stylistki. " +
+      "Maksymalnie 12–15 zdań, bez lania wody. Bądź konkretny, pomocny i życzliwy. " +
+      "Nie wymyślaj rzeczy, których na zdjęciu nie widać.";
 
     const response = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
         {
+          role: "system",
+          content: [{ type: "input_text", text: systemPrompt }],
+        },
+        {
           role: "user",
           content: [
-            { type: "input_text", text: prompt },
+            {
+              type: "input_text",
+              text: "Przeanalizuj to zdjęcie rzęs zgodnie z zasadami powyżej.",
+            },
             {
               type: "input_image",
               image_url: `data:image/jpeg;base64,${base64Image}`,
@@ -179,23 +131,21 @@ Pamiętaj: bądź pomocny, konkretny i życzliwy. Nie wymyślaj rzeczy, których
       ],
     });
 
-    // Próba wyciągnięcia tekstu z odpowiedzi
+    // Wyciąganie tekstu z odpowiedzi Responses API
     let analysis = "";
 
-    if (response.output && Array.isArray(response.output)) {
+    if (response.output_text) {
+      analysis = response.output_text;
+    } else if (Array.isArray(response.output)) {
       analysis = response.output
         .flatMap((item) => item.content || [])
         .map((c) => c.text || "")
-        .join("\n\n")
-        .trim();
+        .join("\n\n");
     }
 
-    if (!analysis && response.output_text) {
-      analysis = (response.output_text || "").trim();
-    }
-
-    if (!analysis) {
-      analysis = "Brak odpowiedzi od modelu.";
+    if (!analysis || !analysis.trim()) {
+      analysis =
+        "Analiza zakończona, ale model nie zwrócił szczegółowego raportu. Spróbuj wgrać wyraźniejsze zdjęcie jednego oka z bliska.";
     }
 
     res.json({
@@ -212,7 +162,8 @@ Pamiętaj: bądź pomocny, konkretny i życzliwy. Nie wymyślaj rzeczy, których
   }
 });
 
-// Start serwera
+// --- start serwera ---
+
 app.listen(PORT, () => {
   console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
 });
