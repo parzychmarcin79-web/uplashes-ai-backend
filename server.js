@@ -1,5 +1,4 @@
-// UPLashes AI – backend analizy zdjęć rzęs
-// Plik: server.js (wersja CommonJS - const require)
+// server.js – UPLashes AI backend (wersja docelowa)
 
 const express = require("express");
 const cors = require("cors");
@@ -13,18 +12,18 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Multer – plik w pamięci
+// Multer – plik w pamięci, max 8 MB
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// Klient OpenAI – na Render musi być ustawiona zmienna OPENAI_API_KEY
+// Klient OpenAI – na Render MUSI być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty endpoint testowy
+// 🔹 Prosty healthcheck – żebyś mogła sprawdzić, czy backend żyje
 app.get("/", (req, res) => {
   res.send("UPLashes AI backend działa ✅");
 });
@@ -36,132 +35,114 @@ app.get("/ping", (req, res) => {
   });
 });
 
-// GŁÓWNY ENDPOINT ANALIZY
+// 🔹 Główna trasa analizy
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
+    // 1) Czy na pewno przyszło zdjęcie?
     if (!req.file) {
       return res.status(400).json({
         ok: false,
-        error: "Brak pliku ze zdjęciem. Wgraj zdjęcie jednego oka.",
+        error: "Brak pliku obrazu. Prześlij zdjęcie oka z rzęsami.",
       });
     }
 
-    const language = req.body.language === "en" ? "en" : "pl";
+    // 2) Zamiana na data URL dla modelu
+    const base64 = req.file.buffer.toString("base64");
+    const imageDataUrl = `data:${req.file.mimetype};base64,${base64}`;
 
-    const base64Image = req.file.buffer.toString("base64");
-    const imageUrl = `data:${req.file.mimetype};base64,${base64Image}`;
+    // 3) Prompt – logika A / B / C
+    const prompt = `Jesteś ekspertem od stylizacji rzęs i piszesz raporty dla aplikacji UPLashes AI.
 
-    // PROMPT: 3 scenariusze (extensions / natural / no eye)
-    const systemPrompt =
-      "You are an expert lash stylist AI (UPLashes AI). " +
-      "Your job is to analyze ONE uploaded image and give advice ONLY about lashes. " +
-      "The app is for UPLashes brand – keep the tone professional, warm and practical.";
+Twoje zadanie:
 
-    const userPrompt = `
-Najpierw ZBADAJ zdjęcie i odpowiedz sobie na 3 pytania (tylko w swojej "głowie"):
+1. Najpierw w myślach zaklasyfikuj obraz do jednej z trzech kategorii:
+   - A) "extensions" – widzę oko z zaaplikowanymi rzęsami (przedłużanie, kępki, volume).
+   - B) "natural" – widzę oko, ale rzęsy wyglądają na naturalne, bez stylizacji.
+   - C) "invalid" – nie widzę wyraźnego zbliżenia jednego oka z rzęsami (np. zdjęcie z daleka, inny obiekt, zbyt ciemne / rozmazane).
 
-1) Czy na zdjęciu widać WYRAŹNIE jedno oko lub powiekę z rzęsami?
-2) Czy na tych rzęsach widać APLIKACJĘ PRZEDŁUŻANYCH RZĘS (sztuczne rzęsy), czy są to tylko NATURALNE rzęsy?
-3) Czy zdjęcie jest w miarę ostre i zbliżone (nie z daleka, nie cała twarz, nie podłoga, nie przedmiot)?
+2. Na podstawie tej klasyfikacji ZWRÓĆ TYLKO gotowy raport w **markdown po polsku**, BEZ JSON, BEZ wypisywania liter A/B/C.
 
-Na podstawie tego wybierz JEDEN z 3 scenariuszy:
+=== DLA A) extensions ===
+Napisz raport pod nagłówkiem:
 
-SCENARIUSZ A – BRAK OKA / NIEPOPRAWNE ZDJĘCIE
-- Użyj tego scenariusza, jeśli na zdjęciu:
-  - w ogóle nie ma oka,
-  - oko jest zbyt daleko, bardzo małe,
-  - widać zupełnie coś innego (podłoga, ściana, laptop, ręka itp.).
-- Wtedy NIE dawaj żadnej analizy rzęs.
-- Po prostu grzecznie napisz, że nie możesz ocenić stylizacji na podstawie tego zdjęcia
-  i poproś o wgranie ZBLIŻENIA jednego oka lub powieki z rzęsami.
+### AI.UPLashes Report
 
-SCENARIUSZ B – JEST OKO, ALE TYLKO NATURALNE RZĘSY (BRAK APLIKACJI)
-- Użyj tego scenariusza, jeśli widać oko/powiekę i rzęsy są NATURALNE,
-  bez widocznej aplikacji salonowej.
-- Wyraźnie napisz, że na zdjęciu nie ma przedłużanych rzęs.
-- Zamiast oceny aplikacji:
-  - oceń ogólnie naturalne rzęsy (gęstość, długość, kierunek),
-  - ZAPROPONUJ 1–2 typy aplikacji, które dobrze pasowałyby do tego oka
-    (np. 1:1 classic, 2D-3D light volume, 4–6D mega volume, efekt doll eye, fox eye itd.),
-  - wyjaśnij krótko, dlaczego te propozycje będą korzystne (np. optyczne otwarcie oka, zagęszczenie linii, złagodzenie rysów).
-- NIE udawaj, że widzisz gotową stylizację – jasno powiedz, że to naturalne rzęsy i są to propozycje.
+Następnie w punktach:
 
-SCENARIUSZ C – WIDOCZNA APLIKACJA PRZEDŁUŻANYCH RZĘS
-- Użyj tego scenariusza, jeśli wyraźnie widzisz sztuczne rzęsy / stylizację.
-- Oceń stylizację według schematu:
-  1) Gęstość i pokrycie linii rzęs (czy są dziury, czy linia jest pełna),
-  2) Kierunek i górna linia (czy rzęsy są równe, czy „falują”),
-  3) Mapowanie i styl (np. natural, doll eye, fox; czy pasuje do oka),
-  4) Jakość przyklejenia (czy widać sklejki, krzyżujące się rzęsy, odstające kępki),
-  5) Bezpieczeństwo i komfort (czy nie wygląda na zbyt ciężkie, czy nie widać podrażnień).
-- Potem dodaj krótki blok „Wskazówki do poprawy” – bardzo konkretne, praktyczne sugestie.
+1. **Gęstość i pokrycie** – oceń gęstość aplikacji, czy widać luki, dziury, zbyt puste lub zbyt ciężkie miejsca.
+2. **Kierunek i górna linia** – czy rzęsy układają się w podobnym kierunku, czy górna linia jest równa i estetyczna, czy coś „wyskakuje” z linii.
+3. **Mapowanie i styl** – do jakiego efektu jest najbliżej (np. 1:1, 2–3D, 4–6D, mega volume, doll eye, fox eye, kim, wet look itd.), jak rozłożone są długości.
+4. **Jakość przyklejenia** – czy widać sklejki, odstające rzęsy, krzyżujące się podstawy, czy linia przyklejenia jest czysta.
+5. **Bezpieczeństwo i komfort** – czy widać zaczerwienienie, podrażnienia, zbyt ciężkie kępki, niebezpieczne odklejenia.
 
-WAŻNE:
-- Odpowiadaj TYLKO w jednym języku: ${
-      language === "pl" ? "po polsku" : "po angielsku"
-    }.
-- Nie pisz, że jesteś modelem językowym.
-- Nie wspominaj o scenariuszach A/B/C w odpowiedzi dla użytkownika.
-- Pisz w formie krótkich akapitów z nagłówkami, ale bez nadmiaru ozdobników.
-`;
+Na końcu dodaj sekcję:
 
+### Wskazówki do poprawy
+
+i wypisz konkretne, praktyczne tipy dla stylistki (co może zrobić lepiej przy kolejnej aplikacji).
+
+=== DLA B) natural ===
+Także użyj nagłówka:
+
+### AI.UPLashes Report
+
+Wyjaśnij jasno, że na zdjęciu NIE WIDZISZ stylizacji rzęs – tylko naturalne rzęsy, dlatego nie możesz ocenić wykonanej aplikacji.
+Następnie zaproponuj 2–3 warianty stylizacji, które mogłyby pasować do tego oka, np.:
+
+- delikatne 1:1 dla bardzo naturalnego efektu,
+- 2–3D dla subtelnej objętości,
+- 4–6D lub mega volume dla mocnego efektu, jeśli klientka lubi dramatyczny look.
+
+Daj krótkie uzasadnienie, do kogo / jakiego typu klientki każda propozycja pasuje.
+
+=== DLA C) invalid ===
+Użyj nagłówka:
+
+### AI.UPLashes Report
+
+i napisz krótki komunikat w stylu:
+"Nie widzę na zdjęciu wyraźnego oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska, ostre, dobrze doświetlone, bez filtra."
+
+BARDZO WAŻNE:
+- Nigdy nie udawaj, że widzisz stylizację, jeśli jej nie ma.
+- Jeśli nie masz pewności, zachowuj się jak kategoria C.
+- Nie wypisuj kategorii A/B/C – tylko gotowy raport w markdown.
+- Pisz wyłącznie po polsku.`;
+
+    // 4) Wywołanie modelu z obrazem
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
         {
-          role: "system",
-          content: [
-            {
-              type: "input_text",
-              text: systemPrompt,
-            },
-          ],
-        },
-        {
           role: "user",
           content: [
-            {
-              type: "input_text",
-              text: `Language: ${language === "pl" ? "Polish" : "English"}`,
-            },
-            {
-              type: "input_text",
-              text: userPrompt,
-            },
-            {
-              type: "input_image",
-              image_url: {
-                url: imageUrl,
-              },
-            },
+            { type: "input_text", text: prompt },
+            { type: "input_image", image_url: imageDataUrl },
           ],
         },
       ],
     });
 
-    const aiText =
-      response.output &&
-      response.output[0] &&
-      response.output[0].content &&
-      response.output[0].content[0] &&
-      response.output[0].content[0].text
-        ? response.output[0].content[0].text
-        : "Nie udało się odczytać odpowiedzi AI.";
+    const text =
+      response.output?.[0]?.content?.[0]?.text?.trim() ||
+      "Nie udało się wygenerować raportu dla tego zdjęcia.";
 
-    res.json({
+    // 5) Sukces – frontend oczekuje statusu 200
+    return res.json({
       ok: true,
-      language,
-      result: aiText,
+      reportMarkdown: text,
     });
-  } catch (err) {
-    console.error("Błąd w /analyze:", err);
-    res.status(500).json({
+  } catch (error) {
+    console.error("Błąd w /analyze:", error);
+
+    return res.status(500).json({
       ok: false,
-      error: "Błąd po stronie serwera AI. Spróbuj ponownie za chwilę.",
+      error: "Błąd po stronie serwera podczas analizy obrazu.",
     });
   }
 });
 
+// Start serwera
 app.listen(PORT, () => {
   console.log(`UPLashes AI backend listening on port ${PORT}`);
 });
