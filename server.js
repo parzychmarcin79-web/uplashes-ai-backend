@@ -1,77 +1,112 @@
-import express from "express";
-import cors from "cors";
-import multer from "multer";
-import OpenAI from "openai";
-import dotenv from "dotenv";
+// UPLashes AI – backend analizy zdjęć rzęs (endpoint /analyze)
+// Plik: server.js
 
-dotenv.config();
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const OpenAI = require("openai");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = process.env.PORT || 10000;
 
-// Upload handling
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Model OpenAI
+// Klient OpenAI – pamiętaj o ustawieniu zmiennej OPENAI_API_KEY w Render
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Health check
-app.get("/", (req, res) => {
-  res.send("UPLashes backend działa");
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Konfiguracja multer – plik w pamięci, max 5 MB
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// AI ANALIZA
-app.post("/analyze", upload.single("file"), async (req, res) => {
+// Endpoint testowy
+app.get("/", (req, res) => {
+  res.send("UPLashes AI – backend działa ✅");
+});
+
+// Główny endpoint analizy zdjęcia rzęs
+app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "Nie przesłano pliku." });
+      return res.status(400).json({ error: "Brak pliku ze zdjęciem." });
     }
 
-    const { language } = req.body;
+    const mimeType = req.file.mimetype || "image/jpeg";
+    const base64 = req.file.buffer.toString("base64");
+    const imageUrl = `data:${mimeType};base64,${base64}`;
+
+    // opcjonalna etykieta z frontu (before / after)
+    const labelFromClient = req.body.beforeAfter || "";
 
     const prompt = `
-Jesteś ekspertem stylizacji rzęs.
-Przeanalizuj zdjęcie według kluczowych punktów: gęstość, kierunki, dopasowanie długości, kształt, separator, wiązania, przejścia.
-Udziel jasnych wskazówek poprawy.
+Na zdjęciu mogą znajdować się rzęsy klientki (przed lub po stylizacji).
 
-Język odpowiedzi: ${language === "en" ? "English" : "Polski"}.
+Twoje zadanie:
+
+1. Najpierw oceń, czy na zdjęciu na pewno widać oko i rzęsy (naturalne lub przedłużane).
+2. Jeśli NIE widać rzęs (np. podłoga, ściana, twarz bez oka, coś zupełnie innego) – odpowiedz TYLKO:
+"Na zdjęciu nie widać rzęs do analizy."
+i NIC więcej nie dodawaj.
+
+3. Jeśli widać rzęsy – wykonaj profesjonalną analizę po POLSKU, skierowaną do stylistki rzęs, maksymalnie w 8–12 zdaniach.
+
+Uwzględnij:
+- gęstość i ilość rzęs,
+- kierunek, kierunkowanie i symetrię,
+- czystość pracy (sklejki, odstępy od powieki, linia przyklejenia),
+- dobór długości, grubości i skrętu,
+- ogólne wrażenie estetyczne pracy.
+
+4. Spróbuj określić, czy to raczej zdjęcie "before" czy "after" stylizacji.
+   - Jeśli wygląda jak gotowa stylizacja – traktuj jako "after".
+   - Jeśli rzęsy są naturalne / bez aplikacji – traktuj jako "before".
+
+Na końcu odpowiedzi dopisz osobną linię:
+"Typ zdjęcia: before"
+lub
+"Typ zdjęcia: after"
+
+Jeśli z frontendu dostałaś etykietę "${labelFromClient}", możesz ją użyć jako dodatkową wskazówkę, ale ostatecznie zdecyduj sama na podstawie obrazu.
+
+Pisz konkretnie, profesjonalnie, po polsku.
 `;
 
-    const base64Image = req.file.buffer.toString("base64");
-
-    const response = await client.responses.create({
-      model: "gpt-4o-mini",
-      input: [
+    const completion = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
         {
           role: "user",
           content: [
-            { type: "input_text", text: prompt },
+            { type: "text", text: prompt },
             {
-              type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
+              type: "image_url",
+              image_url: { url: imageUrl },
             },
           ],
         },
       ],
+      temperature: 0.6,
     });
 
-    const aiAnswer =
-      response.output_text ||
-      response.output[0]?.content[0]?.text ||
-      "Brak odpowiedzi od modelu.";
+    const content = completion?.choices?.[0]?.message?.content;
+    let text = "";
 
-    res.json({ result: aiAnswer });
-  } catch (error) {
-    console.error("SERVER ERROR:", error);
-    res.status(500).json({ error: "Błąd analizy AI.", details: error.message });
-  }
-});
+    if (Array.isArray(content)) {
+      text = content.map((part) => part.text || "").join("\n\n");
+    } else if (typeof content === "string") {
+      text = content;
+    }
 
-// Port dla Render
-const port = process.env.PORT || 10000;
-app.listen(port, () => {
-  console.log("Backend UPLashes działa na porcie " + port);
-});
+    return res.json({
+      success: true,
+      analysis: text,
+    });
+  } catch (err) {
+    console.error("Błąd w /analyze:", err);
+    return res.status(500).json({
+      success: false,
