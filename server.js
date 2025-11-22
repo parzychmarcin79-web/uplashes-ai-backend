@@ -1,10 +1,9 @@
-// UPLashes AI – backend analizy zdjęć rzęs
-// Wersja ES Module (działa z "type": "module" w package.json)
-
-import express from "express";
-import cors from "cors";
-import multer from "multer";
-import OpenAI from "openai";
+// UPLashes AI – backend analizy zdjęć rzęs (CommonJS, bez "type": "module")
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const OpenAI = require("openai");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -13,33 +12,32 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Multer – plik w pamięci
-const upload = multer({ storage: multer.memoryStorage() });
+// Multer – plik w pamięci, limit 8 MB
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
 
-// Klient OpenAI – pamiętaj o zmiennej OPENAI_API_KEY na Render
+// Klient OpenAI – na Render musi być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prosty root – żeby nie było "Cannot GET /"
+// Prosty health-check, żeby nie było "Cannot GET /"
 app.get("/", (req, res) => {
   res.send("UPLashes AI backend działa ✅");
 });
 
-// /ping – szybki test zdrowia serwera
 app.get("/ping", (req, res) => {
-  res.json({
-    ok: true,
-    message: "UPLashes AI backend działa i odpowiada na /ping",
-  });
+  res.json({ status: "ok" });
 });
 
 /**
  * GŁÓWNY ENDPOINT DO ANALIZY ZDJĘCIA
- * POST /analyze
- * - field "image" (plik)
- * - body.language: "pl" lub "en"
- * - body.analysisType: "before" albo "after"
+ * Oczekuje:
+ *  - field "image" (plik)
+ *  - body.language: "pl" lub "en"
+ *  - body.analysisType: "before" albo "after"
  */
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
@@ -48,62 +46,63 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
     }
 
     const { language = "pl", analysisType = "after" } = req.body;
-    const base64Image = req.file.buffer.toString("base64");
 
+    const base64Image = req.file.buffer.toString("base64");
     const langLabel = language === "en" ? "English" : "Polski";
 
     const systemPrompt = `
-Jesteś doświadczoną stylistką rzęs i instruktorem.
-Analizujesz zdjęcie oka i dajesz konkretne, profesjonalne wskazówki dla stylistek.
-Zawsze odpowiadasz w języku: ${langLabel}.
+Jesteś bardzo doświadczoną stylistką rzęs i instruktorką.
+Analizujesz zdjęcia oka i dajesz jasny, profesjonalny feedback dla stylistek.
+Odpowiadasz zawsze w języku: ${langLabel}.
 `;
 
     const userPrompt = `
-Analizujemy zbliżenie jednego oka pod kątem stylizacji rzęs.
+Analizujemy zbliżenie jednego oka do stylizacji rzęs.
 
-BARDZO WAŻNE – ZASADY:
+BARDZO WAŻNE – TRZYMAJ SIĘ ŚCISŁO TYCH ZASAD:
 
-1) Najpierw sprawdź, czy zdjęcie jest poprawne:
-   - Poprawne = zbliżenie JEDNEGO oka, widać rzęsy (naturalne lub przedłużane),
-     linię rzęs i powiekę.
-   - Jeśli NIE widać oka z rzęsami (np. podłoga, ściana, tekst, przedmiot):
-     -> Odpowiedz tylko krótką wiadomością:
-        "${language === "en"
-          ? "I can't see an eye with lashes to analyze. Please upload a close-up photo of one eye."
-          : "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
+1) NAJPIERW SPRAWDŹ, CZY ZDJĘCIE JEST POPRAWNE:
+   - Poprawne = zbliżenie JEDNEGO oka, widoczna linia rzęs/naskórek.
+   - Jeśli na zdjęciu NIE ma oka z rzęsami (np. podłoga, ściana, przypadkowy obiekt, tekst, twarz bez oka):
+     -> Odpowiedz TYLKO krótką wiadomością:
+        "${
+          language === "en"
+            ? "I can't see an eye with lashes to analyze. Please upload a close-up photo of one eye."
+            : "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
         }"
-     -> NIE wymyślaj żadnej analizy stylizacji.
+     -> NIE wymyślaj analizy rzęs.
 
-2) Jeśli zdjęcie jest poprawne – pełna analiza.
+2) JEŚLI ZDJĘCIE JEST POPRAWNE – ZRÓB PEŁNĄ ANALIZĘ.
 
-   analysisType = "before":
-   - Traktuj jako konsultację PRZED aplikacją.
-   - Oceń:
+   - analysisType = "before":
+     Traktuj to jako analizę PRZED APLIKACJĄ.
+     Oceń:
        • długość i gęstość naturalnych rzęs,
        • kształt oka i powieki,
-       • kierunek rzęs, ich kondycję.
-   - Podaj:
-       • rekomendowane skręty, długości, grubości i efekt (np. natural, doll, fox),
-       • ostrzeżenia, jeśli rzęsy są słabe/zniszczone,
-       • praktyczne wskazówki dla stylistki przed aplikacją.
+       • kierunek wzrostu i kondycję rzęs.
+     Następnie podaj:
+       • rekomendowane mapowanie (długości, skręty, grubości, efekt),
+       • propozycje efektu (naturalny, doll eye, fox, itp.),
+       • ostrzeżenia (jeśli rzęsy są bardzo słabe/krótkie/zniszczone),
+       • praktyczne tipy dla stylistki przed aplikacją.
 
-   analysisType = "after":
-   - Traktuj jako ocenę WYKONANEJ stylizacji.
-   - Oceń:
+   - analysisType = "after":
+     Traktuj to jako ocenę GOTOWEJ PRACY.
+     Oceń:
        • gęstość i równomierność,
-       • kierunki i symetrię (wewn./zewn. kącik),
-       • odległość od skóry, czystość aplikacji,
-       • jakość kępek (przy volume),
-       • czy efekt pasuje do budowy oka.
-   - Podaj:
+       • kierunki i symetrię (wewnętrzne/zewnętrzne kąciki),
+       • odległość od skóry, czystość przyklejenia,
+       • jakość kępek (przy objętościach),
+       • dopasowanie efektu do anatomii oka.
+     Następnie podaj:
        • największe plusy,
        • najważniejsze błędy,
-       • konkretne wskazówki, jak poprawić kolejną aplikację.
+       • jasne sugestie, jak poprawić kolejną stylizację.
 
-3) Styl:
-   - bądź życzliwa, ale konkretna,
-   - używaj wypunktowań i krótkich sekcji,
-   - pisz w języku: ${langLabel}.
+3) STYL:
+   - Bądź uprzejma, ale konkretna.
+   - Używaj punktów, krótkich sekcji i języka zrozumiałego dla stylistek.
+   - Pisz w języku: ${langLabel}.
 `;
 
     const response = await client.responses.create({
@@ -149,5 +148,5 @@ BARDZO WAŻNE – ZASADY:
 
 // Start serwera
 app.listen(PORT, () => {
-  console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
+  console.log("Backend UPLashes AI działa na porcie " + PORT);
 });
