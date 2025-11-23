@@ -11,25 +11,27 @@ const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
 
-// ===== KONFIGURACJA PODSTAWOWA =====
-
 const app = express();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
+// Port – Render zwykle podaje PORT w env
 const PORT = process.env.PORT || 10000;
 
+// Klient OpenAI – musi być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ===== PROMPT SYSTEMOWY =====
+// ================== PROMPT SYSTEMOWY ==================
 
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
@@ -79,63 +81,33 @@ KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
-2. Kierunek i ustawienie rzęs
-3. Mapowanie i długości
-4. Sklejone rzęsy / separacja
+2. Kierunek
+3. Mapowanie
+4. Sklejone rzęsy
 5. Odrosty
 6. Klej
 
-KROK 5 – JAKOŚĆ WACHLARZY VOLUME / MEGA VOLUME (B)
-Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+ – oceń wachlarze:
-- równomierność,
-- bazy,
-- ciężkość do naturalnych rzęs,
-- podsumuj: bardzo dobra / poprawna / wymaga pracy.
-Jeśli to klasyka lub delikatny volume:
-- napisz: "B) Mega Volume: nie dotyczy tej aplikacji."
+KROK 5 – WACHLARZE VOLUME (B)
+Jeśli aplikacja to Volume lub Mega Volume — oceń wachlarze.
 
-KROK 6 – TRYB ANIME / SPIKE LASHES (C)
-Jeśli stylizacja ma wyraźne kolce / spikes:
-- oceń jakość i rozmieszczenie spike’ów,
-- wypełnienie między nimi,
-- daj wskazówki jak poprawić efekt Anime / Spike.
-Jeśli styl NIE jest Anime / Spike:
-- napisz: "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
+KROK 6 – TRYB ANIME (C)
+Jeśli są spike’i — oceń spike’i.
 
-KROK 7 – FORMAT ODPOWIEDZI (MARKDOWN)
-
-### AI.UPLashes REPORT
-
-1. Czy widzę stylizację?
-2. Typ stylizacji (jeśli jest):
-3. Analiza techniczna:
-4. Jakość wachlarzy (jeśli Volume/Mega):
-5. Tryb Anime / Spike (jeśli dotyczy):
-6. Najważniejsze wskazówki do poprawy (3–5 punktów).
-
-Na końcu dodaj:
-"Wstępna klasyfikacja aplikacji: …"
-"Rekomendacja kolejnego kroku dla stylistki: …"
-
-Nie krytykuj klientki ani stylistki – pisz życzliwie i konstruktywnie.
+KROK 7 – FORMAT
+Zwróć odpowiedź w Markdown jako raport AI.UPLashes.
 `;
 
-// ===== ROUTES =====
+// ================== ROUTES ==================
 
-// Health-check
 app.get("/", (req, res) => {
   res.send("UPLashes AI – backend działa ✅");
 });
 
-// Ping dla frontendu
 app.get("/ping", (req, res) => {
-  res.json({
-    ok: true,
-    message: "UPLashes AI backend działa i odpowiada na /ping",
-  });
+  res.json({ ok: true, message: "UPLashes AI backend działa i odpowiada na /ping" });
 });
 
-// GŁÓWNY ENDPOINT ANALIZY
+// główny endpoint
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -149,45 +121,47 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
-      response_format: { type: "text" }, // chcemy czysty tekst
       input: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
         {
           role: "user",
           content: [
-            {
-              type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
-            },
+            { type: "input_text", text: systemPrompt },
+            { type: "input_image", image_url: `data:image/jpeg;base64,${base64Image}` },
           ],
         },
       ],
     });
 
-    // dzięki response_format: "text" powinniśmy mieć output_text
     let analysis = "";
+
     if (openaiResponse.output_text) {
       analysis = String(openaiResponse.output_text).trim();
+    }
+
+    if (!analysis && Array.isArray(openaiResponse.output)) {
+      const chunks = [];
+      for (const item of openaiResponse.output) {
+        if (Array.isArray(item.content)) {
+          for (const part of item.content) {
+            if (part.text) chunks.push(part.text);
+            if (part.output_text) chunks.push(part.output_text);
+          }
+        }
+      }
+      analysis = chunks.join("\n\n").trim();
     }
 
     if (!analysis) {
       analysis = "Model nie zwrócił szczegółowego raportu.";
     }
 
-    return res.json({
-      success: true,
-      analysis,
-    });
+    return res.json({ success: true, analysis });
   } catch (error) {
     console.error("Błąd w /analyze:", error);
-
     return res.status(500).json({
       success: false,
       error: "Błąd serwera podczas analizy zdjęcia.",
-      details: error.message || String(error),
+      details: error.message,
     });
   }
 });
