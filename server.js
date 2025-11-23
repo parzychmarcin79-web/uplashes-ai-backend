@@ -13,20 +13,20 @@ const OpenAI = require("openai");
 
 const app = express();
 
-// --- Middleware ---
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// --- Multer – plik w pamięci, max 8 MB ---
+// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// --- Konfiguracja portu ---
+// Port – Render zwykle podaje PORT w env
 const PORT = process.env.PORT || 10000;
 
-// --- Klient OpenAI ---
+// Klient OpenAI – musi być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -81,11 +81,30 @@ KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
+   - Czy linia rzęs jest równomiernie pokryta?
+   - Czy są wyraźne luki / dziury?
+
 2. Kierunek i ustawienie rzęs
+   - Czy rzęsy idą w podobnym kierunku?
+   - Czy widać rzęsy „uciekające” w inne strony lub krzyżujące się?
+
 3. Mapowanie i długości
+   - Czy przejścia długości są płynne?
+   - Czy mapowanie pasuje do kształtu oka (nie musisz nazywać efektu, jeśli nie jesteś pewien)?
+
 4. Sklejone rzęsy / separacja
+   - Czy widać sklejenia naturalnych rzęs?
+   - Czy to drobne niedociągnięcia, czy poważniejsze błędy?
+   - Zasugeruj, jak poprawić separację.
+
 5. Odrosty
+   - Czy widać mocne odrosty, wachlarze odsunięte od linii powieki?
+   - Jeśli tak – zasugeruj korektę / wymianę przy kolejnym uzupełnianiu.
+
 6. Klej
+   - Czy nasady są czyste?
+   - Czy widać grudki, kuleczki, nadmiar kleju?
+   - Napisz, czy ilość kleju wygląda na odpowiednią.
 
 KROK 5 – JAKOŚĆ WACHLARZY VOLUME / MEGA VOLUME (B)
 Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+:
@@ -93,7 +112,7 @@ Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+:
 1. Oceń wachlarze:
    - czy są równomiernie rozłożone,
    - czy mają ładne, wąskie bazy,
-   - czy nie są zbyt zbite.
+   - czy nie są zbyt zbite („kikut” zamiast wachlarza).
 2. Oceń ciężkość:
    - czy wachlarze nie są zbyt ciężkie dla naturalnych rzęs.
 3. Podsumuj krótko jakość wachlarzy:
@@ -107,8 +126,8 @@ Jeśli stylizacja ma wyraźne kolce / spikes:
 1. Oceń:
    - jakość i gładkość spike’ów,
    - rozmieszczenie spike’ów,
-   - wypełnienie pomiędzy spike’ami.
-2. Zasugeruj, jak poprawić efekt Anime / Spike.
+   - wypełnienie pomiędzy spike’ami (czy nie jest zbyt ciężkie lub zbyt puste).
+2. Zasugeruj, jak poprawić efekt Anime / Spike (kształt kolców, gęstość tła).
 Jeśli styl NIE jest Anime / Spike:
    - napisz: "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
 
@@ -118,25 +137,94 @@ Zwróć odpowiedź w formie krótkiego raportu w Markdown:
 ### AI.UPLashes REPORT
 
 1. Czy widzę stylizację?
-2. Typ stylizacji (jeśli jest).
-3. Analiza techniczna (punkty z KROKU 4).
-4. Jakość wachlarzy (jeśli Volume/Mega).
-5. Tryb Anime / Spike (jeśli dotyczy).
-6. Najważniejsze wskazówki (3–5 punktów).
+   - Krótka informacja: aplikacja / naturalne rzęsy / zdjęcie nieprzydatne.
+
+2. Typ stylizacji (jeśli jest):
+   - Rodzaj: Klasyczna 1:1 / Light Volume 2–3D / Volume 4–6D / Mega Volume 7D+
+   - Styl: naturalny / delikatny volume / mocny volume / Anime / inny.
+
+3. Analiza techniczna:
+   - Gęstość i pokrycie
+   - Kierunek i ustawienie
+   - Mapowanie i długości
+   - Sklejone rzęsy / separacja
+   - Odrosty
+   - Klej
+
+4. Jakość wachlarzy (jeśli Volume/Mega):
+   - krótka ocena.
+
+5. Tryb Anime / Spike (jeśli dotyczy):
+   - co jest dobre, co można dopracować.
+
+6. Najważniejsze wskazówki do poprawy (max 3–5 punktów):
+   - konkretne, praktyczne rady dla stylistki.
+
+Na końcu dodaj:
+"Wstępna klasyfikacja aplikacji: …"
+"Rekomendacja kolejnego kroku dla stylistki: …"
+
+Nie krytykuj klientki ani stylistki – pisz życzliwie i konstruktywnie.
 `;
 
 // ================== ROUTES ==================
 
+// Prosty endpoint zdrowia
 app.get("/", (req, res) => {
   res.send("UPLashes AI – backend działa ✅");
 });
 
+// Endpoint do pingu z frontendu
 app.get("/ping", (req, res) => {
   res.json({
     ok: true,
     message: "UPLashes AI backend działa i odpowiada na /ping",
   });
 });
+
+// Pomocnicza funkcja – agresywne wyciąganie tekstu z odpowiedzi OpenAI
+function extractTextFromResponse(openaiResponse) {
+  try {
+    // 1) Najpierw spróbuj prostego helpera
+    if (typeof openaiResponse.output_text === "string") {
+      const t = openaiResponse.output_text.trim();
+      if (t) return t;
+    }
+
+    let chunks = [];
+
+    // 2) Parsowanie output[]
+    if (Array.isArray(openaiResponse.output)) {
+      for (const item of openaiResponse.output) {
+        if (!item || !Array.isArray(item.content)) continue;
+
+        for (const part of item.content) {
+          if (!part) continue;
+
+          // Nowy format: { type: "output_text", text: [ { type: "text", text: "..." } ] }
+          if (Array.isArray(part.text)) {
+            for (const t of part.text) {
+              if (t && typeof t.text === "string") {
+                chunks.push(t.text);
+              }
+            }
+          } else if (typeof part.text === "string") {
+            chunks.push(part.text);
+          } else if (typeof part.output_text === "string") {
+            chunks.push(part.output_text);
+          }
+        }
+      }
+    }
+
+    const joined = chunks.join("\n\n").trim();
+    if (joined) return joined;
+  } catch (e) {
+    console.error("Błąd przy parsowaniu odpowiedzi OpenAI:", e);
+  }
+
+  return "";
+}
 
 // GŁÓWNY ENDPOINT ANALIZY
 app.post("/analyze", upload.single("image"), async (req, res) => {
@@ -152,6 +240,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
+      response_format: { type: "text" }, // prosimy o tekst
       input: [
         {
           role: "user",
@@ -169,30 +258,10 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       ],
     });
 
-    // 🔴 TU NAPRAWIAMY – WYCIĄGANIE TEKSTU
+    console.log("Odpowiedź z OpenAI (surowa):", JSON.stringify(openaiResponse, null, 2));
 
-    let analysis = "";
+    let analysis = extractTextFromResponse(openaiResponse);
 
-    // 1) Najpierw spróbuj output_text (skrót)
-    if (openaiResponse.output_text) {
-      analysis = String(openaiResponse.output_text).trim();
-    }
-
-    // 2) Jeśli dalej pusto – zajrzyj w openaiResponse.output[0].content[0].text
-    if (!analysis && Array.isArray(openaiResponse.output)) {
-      for (const item of openaiResponse.output) {
-        if (Array.isArray(item.content)) {
-          for (const part of item.content) {
-            if (part.text && typeof part.text === "string") {
-              analysis += part.text + "\n\n";
-            }
-          }
-        }
-      }
-      analysis = analysis.trim();
-    }
-
-    // 3) Ostateczny fallback
     if (!analysis) {
       analysis = "Model nie zwrócił szczegółowego raportu.";
     }
