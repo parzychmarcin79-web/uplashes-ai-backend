@@ -215,21 +215,21 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     let analysis = "";
 
-    // 1) Spróbuj użyć output_text (skrót SDK)
+    // 1) Jeśli SDK dało skrót output_text
     if (openaiResponse.output_text) {
       analysis = String(openaiResponse.output_text).trim();
     }
 
-    // 2) Jeśli nadal pusto – parsuj ręcznie output[]
+    // 2) Ręczne parsowanie output[]
     if (!analysis && Array.isArray(openaiResponse.output)) {
       const chunks = [];
 
       for (const item of openaiResponse.output) {
         if (Array.isArray(item.content)) {
           for (const part of item.content) {
-            if (part.text) {
+            if (typeof part.text === "string") {
               chunks.push(part.text);
-            } else if (part.output_text) {
+            } else if (typeof part.output_text === "string") {
               chunks.push(part.output_text);
             }
           }
@@ -237,6 +237,17 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       }
 
       analysis = chunks.join("\n\n").trim();
+    }
+
+    // 3) Jeszcze jeden fallback – czasem odpowiedź siedzi głębiej
+    if (!analysis && openaiResponse.output && openaiResponse.output[0]) {
+      const first = openaiResponse.output[0];
+      if (Array.isArray(first.content)) {
+        analysis = first.content
+          .map((c) => c.text || c.output_text || "")
+          .join("\n\n")
+          .trim();
+      }
     }
 
     if (!analysis) {
