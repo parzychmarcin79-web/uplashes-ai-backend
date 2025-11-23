@@ -13,11 +13,11 @@ const OpenAI = require("openai");
 
 const app = express();
 
-// Middleware
+// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci
+// Multer – trzymamy plik w pamięci (pole "image")
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
@@ -77,7 +77,7 @@ Jeśli widzisz stylizację (przedłużone rzęsy):
    - inny – opisz krótko.
 3. Jeśli nie masz 100% pewności, zaznacz, że to ocena na podstawie zdjęcia.
 
-KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
+KROK 4 – ZAAWANSOWANA ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
@@ -194,60 +194,45 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const base64Image = req.file.buffer.toString("base64");
 
+    // Uproszczone, poprawne wywołanie Responses API:
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
         {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: systemPrompt,
-            },
-            {
-              type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
-            },
-          ],
+          type: "input_text",
+          text: systemPrompt,
+        },
+        {
+          type: "input_image",
+          image_url: `data:image/jpeg;base64,${base64Image}`,
         },
       ],
     });
 
     let analysis = "";
 
-    // 1) Jeśli SDK dało skrót output_text
-    if (openaiResponse.output_text) {
-      analysis = String(openaiResponse.output_text).trim();
+    // 1) Najpierw spróbuj output_text (skrót SDK)
+    if (typeof openaiResponse.output_text === "string") {
+      analysis = openaiResponse.output_text.trim();
     }
 
-    // 2) Ręczne parsowanie output[]
+    // 2) Jeśli nadal pusto – parsuj ręcznie output[]
     if (!analysis && Array.isArray(openaiResponse.output)) {
       const chunks = [];
 
       for (const item of openaiResponse.output) {
-        if (Array.isArray(item.content)) {
-          for (const part of item.content) {
-            if (typeof part.text === "string") {
-              chunks.push(part.text);
-            } else if (typeof part.output_text === "string") {
-              chunks.push(part.output_text);
-            }
+        if (!item || !Array.isArray(item.content)) continue;
+
+        for (const part of item.content) {
+          if (typeof part.output_text === "string") {
+            chunks.push(part.output_text);
+          } else if (typeof part.text === "string") {
+            chunks.push(part.text);
           }
         }
       }
 
       analysis = chunks.join("\n\n").trim();
-    }
-
-    // 3) Jeszcze jeden fallback – czasem odpowiedź siedzi głębiej
-    if (!analysis && openaiResponse.output && openaiResponse.output[0]) {
-      const first = openaiResponse.output[0];
-      if (Array.isArray(first.content)) {
-        analysis = first.content
-          .map((c) => c.text || c.output_text || "")
-          .join("\n\n")
-          .trim();
-      }
     }
 
     if (!analysis) {
