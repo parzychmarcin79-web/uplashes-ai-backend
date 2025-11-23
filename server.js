@@ -1,8 +1,8 @@
 // UPLashes AI – backend analizy zdjęć rzęs
-// Prosta stabilna wersja:
-// - przyjmuje zdjęcie (multipart/form-data, pole "image")
-// - wysyła do OpenAI Responses API
-// - zwraca JSON { success: true, report: "..." }
+// Wersja z rozszerzoną analizą:
+// A) Zaawansowana kontrola aplikacji (sklejenia, kierunki, odrosty, klej)
+// B) Rozpoznawanie jakości wachlarzy Volume / Mega Volume
+// C) Tryb Anime / Spike Lashes
 
 require("dotenv").config();
 
@@ -13,14 +13,14 @@ const OpenAI = require("openai");
 
 const app = express();
 
-// ====== KONFIGURACJA PODSTAWOWA ======
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Multer – plik trzymamy w pamięci (do 8 MB)
+// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
 // Port – Render zwykle podaje PORT w env
@@ -31,7 +31,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ====== PROMPT SYSTEMOWY ======
+// ================== PROMPT SYSTEMOWY ==================
 
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
@@ -77,7 +77,7 @@ Jeśli widzisz stylizację (przedłużone rzęsy):
    - inny – opisz krótko.
 3. Jeśli nie masz 100% pewności, zaznacz, że to ocena na podstawie zdjęcia.
 
-KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
+KROK 4 – ZAAWANSOWANA ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
@@ -167,7 +167,7 @@ Na końcu dodaj:
 Nie krytykuj klientki ani stylistki – pisz życzliwie i konstruktywnie.
 `;
 
-// ====== ROUTES ======
+// ================== ROUTES ==================
 
 // Prosty endpoint zdrowia
 app.get("/", (req, res) => {
@@ -181,6 +181,50 @@ app.get("/ping", (req, res) => {
     message: "UPLashes AI backend działa i odpowiada na /ping",
   });
 });
+
+// Pomocnicza funkcja – agresywne wyciąganie tekstu z odpowiedzi OpenAI
+function extractTextFromResponse(openaiResponse) {
+  try {
+    // 1) Najpierw spróbuj prostego helpera
+    if (typeof openaiResponse.output_text === "string") {
+      const t = openaiResponse.output_text.trim();
+      if (t) return t;
+    }
+
+    let chunks = [];
+
+    // 2) Parsowanie output[]
+    if (Array.isArray(openaiResponse.output)) {
+      for (const item of openaiResponse.output) {
+        if (!item || !Array.isArray(item.content)) continue;
+
+        for (const part of item.content) {
+          if (!part) continue;
+
+          // Nowy format: { type: "output_text", text: [ { type: "text", text: "..." } ] }
+          if (Array.isArray(part.text)) {
+            for (const t of part.text) {
+              if (t && typeof t.text === "string") {
+                chunks.push(t.text);
+              }
+            }
+          } else if (typeof part.text === "string") {
+            chunks.push(part.text);
+          } else if (typeof part.output_text === "string") {
+            chunks.push(part.output_text);
+          }
+        }
+      }
+    }
+
+    const joined = chunks.join("\n\n").trim();
+    if (joined) return joined;
+  } catch (e) {
+    console.error("Błąd przy parsowaniu odpowiedzi OpenAI:", e);
+  }
+
+  return "";
+}
 
 // GŁÓWNY ENDPOINT ANALIZY
 app.post("/analyze", upload.single("image"), async (req, res) => {
@@ -196,20 +240,15 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
-      response_format: { type: "text" },
+      response_format: { type: "text" }, // prosimy o tekst
       input: [
         {
-          role: "system",
+          role: "user",
           content: [
             {
               type: "input_text",
               text: systemPrompt,
             },
-          ],
-        },
-        {
-          role: "user",
-          content: [
             {
               type: "input_image",
               image_url: `data:image/jpeg;base64,${base64Image}`,
@@ -219,23 +258,21 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       ],
     });
 
-    // Proste, bez kombinowania
-    let reportText = "";
+    // UWAGA: nie używamy JSON.stringify(openaiResponse) – powoduje błąd "circular structure"
+    console.log("Odpowiedź OpenAI otrzymana.");
 
-    try {
-      reportText =
-        openaiResponse.output[0].content[0].text[0].text.trim();
-    } catch (e) {
-      console.error("Problem z odczytem tekstu z odpowiedzi OpenAI:", e);
-    }
+    let analysis = extractTextFromResponse(openaiResponse);
 
-    if (!reportText) {
-      reportText = "Model nie zwrócił szczegółowego raportu.";
+    if (!analysis) {
+      analysis = "Model nie zwrócił szczegółowego raportu.";
     }
 
     return res.json({
       success: true,
-      report: reportText, // <-- NAZWA POLA, KTÓRĄ CZYTA FRONT
+      // FRONT szuka pola "report", więc je dodajemy:
+      report: analysis,
+      // Zostawiamy też analysis, gdyby front kiedyś używał:
+      analysis,
     });
   } catch (error) {
     console.error("Błąd w /analyze:", error);
