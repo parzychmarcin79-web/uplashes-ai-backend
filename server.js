@@ -17,7 +17,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci (pole "image")
+// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
@@ -77,7 +77,7 @@ Jeśli widzisz stylizację (przedłużone rzęsy):
    - inny – opisz krótko.
 3. Jeśli nie masz 100% pewności, zaznacz, że to ocena na podstawie zdjęcia.
 
-KROK 4 – ZAAWANSOWANA ANALIZA TECHNICZNA (A)
+KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
@@ -194,26 +194,36 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const base64Image = req.file.buffer.toString("base64");
 
-    // Uproszczone, poprawne wywołanie Responses API:
+    // Wywołanie Responses API – system + user (zdjęcie)
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
         {
-          type: "input_text",
-          text: systemPrompt,
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: systemPrompt,
+            },
+          ],
         },
         {
-          type: "input_image",
-          image_url: `data:image/jpeg;base64,${base64Image}`,
+          role: "user",
+          content: [
+            {
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${base64Image}`,
+            },
+          ],
         },
       ],
     });
 
     let analysis = "";
 
-    // 1) Najpierw spróbuj output_text (skrót SDK)
-    if (typeof openaiResponse.output_text === "string") {
-      analysis = openaiResponse.output_text.trim();
+    // 1) Spróbuj użyć output_text (skrót SDK)
+    if (openaiResponse.output_text) {
+      analysis = String(openaiResponse.output_text).trim();
     }
 
     // 2) Jeśli nadal pusto – parsuj ręcznie output[]
@@ -224,10 +234,13 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
         if (!item || !Array.isArray(item.content)) continue;
 
         for (const part of item.content) {
-          if (typeof part.output_text === "string") {
-            chunks.push(part.output_text);
-          } else if (typeof part.text === "string") {
+          // Najczęstsza struktura: part.text.value
+          if (part && part.text && typeof part.text.value === "string") {
+            chunks.push(part.text.value);
+          } else if (part && typeof part.text === "string") {
             chunks.push(part.text);
+          } else if (part && part.output_text) {
+            chunks.push(String(part.output_text));
           }
         }
       }
@@ -235,8 +248,11 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       analysis = chunks.join("\n\n").trim();
     }
 
+    // 3) Ostateczny fallback – wyrzuć całe JSON, żeby NIE było pustego raportu
     if (!analysis) {
-      analysis = "Model nie zwrócił szczegółowego raportu.";
+      analysis =
+        "DEBUG – surowa odpowiedź modelu (do diagnostyki):\n\n" +
+        JSON.stringify(openaiResponse, null, 2);
     }
 
     return res.json({
