@@ -11,27 +11,25 @@ const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
 
+// ===== KONFIGURACJA PODSTAWOWA =====
+
 const app = express();
 
-// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// Port – Render zwykle podaje PORT w env
 const PORT = process.env.PORT || 10000;
 
-// Klient OpenAI – musi być ustawiona zmienna OPENAI_API_KEY
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ================== PROMPT SYSTEMOWY ==================
+// ===== PROMPT SYSTEMOWY =====
 
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
@@ -81,84 +79,39 @@ KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
-   - Czy linia rzęs jest równomiernie pokryta?
-   - Czy są wyraźne luki / dziury?
-
 2. Kierunek i ustawienie rzęs
-   - Czy rzęsy idą w podobnym kierunku?
-   - Czy widać rzęsy „uciekające” w inne strony lub krzyżujące się?
-
 3. Mapowanie i długości
-   - Czy przejścia długości są płynne?
-   - Czy mapowanie pasuje do kształtu oka (nie musisz nazywać efektu, jeśli nie jesteś pewien)?
-
 4. Sklejone rzęsy / separacja
-   - Czy widać sklejenia naturalnych rzęs?
-   - Czy to drobne niedociągnięcia, czy poważniejsze błędy?
-   - Zasugeruj, jak poprawić separację.
-
 5. Odrosty
-   - Czy widać mocne odrosty, wachlarze odsunięte od linii powieki?
-   - Jeśli tak – zasugeruj korektę / wymianę przy kolejnym uzupełnianiu.
-
 6. Klej
-   - Czy nasady są czyste?
-   - Czy widać grudki, kuleczki, nadmiar kleju?
-   - Napisz, czy ilość kleju wygląda na odpowiednią.
 
 KROK 5 – JAKOŚĆ WACHLARZY VOLUME / MEGA VOLUME (B)
-Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+:
-
-1. Oceń wachlarze:
-   - czy są równomiernie rozłożone,
-   - czy mają ładne, wąskie bazy,
-   - czy nie są zbyt zbite („kikut” zamiast wachlarza).
-2. Oceń ciężkość:
-   - czy wachlarze nie są zbyt ciężkie dla naturalnych rzęs.
-3. Podsumuj krótko jakość wachlarzy:
-   - bardzo dobra / poprawna / wymaga pracy.
-Jeśli to klasyka lub bardzo delikatny volume:
-   - napisz: "B) Mega Volume: nie dotyczy tej aplikacji."
+Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+ – oceń wachlarze:
+- równomierność,
+- bazy,
+- ciężkość do naturalnych rzęs,
+- podsumuj: bardzo dobra / poprawna / wymaga pracy.
+Jeśli to klasyka lub delikatny volume:
+- napisz: "B) Mega Volume: nie dotyczy tej aplikacji."
 
 KROK 6 – TRYB ANIME / SPIKE LASHES (C)
 Jeśli stylizacja ma wyraźne kolce / spikes:
-
-1. Oceń:
-   - jakość i gładkość spike’ów,
-   - rozmieszczenie spike’ów,
-   - wypełnienie pomiędzy spike’ami (czy nie jest zbyt ciężkie lub zbyt puste).
-2. Zasugeruj, jak poprawić efekt Anime / Spike (kształt kolców, gęstość tła).
+- oceń jakość i rozmieszczenie spike’ów,
+- wypełnienie między nimi,
+- daj wskazówki jak poprawić efekt Anime / Spike.
 Jeśli styl NIE jest Anime / Spike:
-   - napisz: "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
+- napisz: "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
 
-KROK 7 – FORMAT ODPOWIEDZI
-Zwróć odpowiedź w formie krótkiego raportu w Markdown:
+KROK 7 – FORMAT ODPOWIEDZI (MARKDOWN)
 
 ### AI.UPLashes REPORT
 
 1. Czy widzę stylizację?
-   - Krótka informacja: aplikacja / naturalne rzęsy / zdjęcie nieprzydatne.
-
 2. Typ stylizacji (jeśli jest):
-   - Rodzaj: Klasyczna 1:1 / Light Volume 2–3D / Volume 4–6D / Mega Volume 7D+
-   - Styl: naturalny / delikatny volume / mocny volume / Anime / inny.
-
 3. Analiza techniczna:
-   - Gęstość i pokrycie
-   - Kierunek i ustawienie
-   - Mapowanie i długości
-   - Sklejone rzęsy / separacja
-   - Odrosty
-   - Klej
-
 4. Jakość wachlarzy (jeśli Volume/Mega):
-   - krótka ocena.
-
 5. Tryb Anime / Spike (jeśli dotyczy):
-   - co jest dobre, co można dopracować.
-
-6. Najważniejsze wskazówki do poprawy (max 3–5 punktów):
-   - konkretne, praktyczne rady dla stylistki.
+6. Najważniejsze wskazówki do poprawy (3–5 punktów).
 
 Na końcu dodaj:
 "Wstępna klasyfikacja aplikacji: …"
@@ -167,14 +120,14 @@ Na końcu dodaj:
 Nie krytykuj klientki ani stylistki – pisz życzliwie i konstruktywnie.
 `;
 
-// ================== ROUTES ==================
+// ===== ROUTES =====
 
-// Prosty endpoint zdrowia
+// Health-check
 app.get("/", (req, res) => {
   res.send("UPLashes AI – backend działa ✅");
 });
 
-// Endpoint do pingu z frontendu
+// Ping dla frontendu
 app.get("/ping", (req, res) => {
   res.json({
     ok: true,
@@ -194,18 +147,13 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const base64Image = req.file.buffer.toString("base64");
 
-    // Wywołanie Responses API – system + user (zdjęcie)
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
+      response_format: { type: "text" }, // chcemy czysty tekst
       input: [
         {
           role: "system",
-          content: [
-            {
-              type: "input_text",
-              text: systemPrompt,
-            },
-          ],
+          content: systemPrompt,
         },
         {
           role: "user",
@@ -219,40 +167,14 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       ],
     });
 
+    // dzięki response_format: "text" powinniśmy mieć output_text
     let analysis = "";
-
-    // 1) Spróbuj użyć output_text (skrót SDK)
     if (openaiResponse.output_text) {
       analysis = String(openaiResponse.output_text).trim();
     }
 
-    // 2) Jeśli nadal pusto – parsuj ręcznie output[]
-    if (!analysis && Array.isArray(openaiResponse.output)) {
-      const chunks = [];
-
-      for (const item of openaiResponse.output) {
-        if (!item || !Array.isArray(item.content)) continue;
-
-        for (const part of item.content) {
-          // Najczęstsza struktura: part.text.value
-          if (part && part.text && typeof part.text.value === "string") {
-            chunks.push(part.text.value);
-          } else if (part && typeof part.text === "string") {
-            chunks.push(part.text);
-          } else if (part && part.output_text) {
-            chunks.push(String(part.output_text));
-          }
-        }
-      }
-
-      analysis = chunks.join("\n\n").trim();
-    }
-
-    // 3) Ostateczny fallback – wyrzuć całe JSON, żeby NIE było pustego raportu
     if (!analysis) {
-      analysis =
-        "DEBUG – surowa odpowiedź modelu (do diagnostyki):\n\n" +
-        JSON.stringify(openaiResponse, null, 2);
+      analysis = "Model nie zwrócił szczegółowego raportu.";
     }
 
     return res.json({
