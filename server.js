@@ -225,8 +225,7 @@ function extractTextFromResponse(openaiResponse) {
 
   return "";
 }
-
-// GŁÓWNY ENDPOINT ANALIZY
+// GŁÓWNY ENDPOINT ANALIZY – JEDNO ZDJĘCIE
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -283,12 +282,124 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
     });
   }
 });
+
 // ====== HELPER: prompt do analizy BEFORE / AFTER ======
 function buildBeforeAfterPrompt(language) {
-  ...
+  const isPL = language === "pl";
+
+  if (isPL) {
+    return `
+Jesteś ekspertem od stylizacji rzęs i instruktorem UPLashes.
+Otrzymujesz DWIE FOTOGRAFIE: BEFORE (przed aplikacją lub gorsza stylizacja) oraz AFTER (po aplikacji / poprawiona stylizacja).
+
+Twoje zadanie:
+1) Porównaj te zdjęcia jak instruktor na szkoleniu PRO.
+2) Zwróć jasny, konkretny feedback w języku POLSKIM.
+3) Skup się na:
+   - gęstości rzęs i wypełnieniu linii,
+   - kierunku rzęs i symetrii,
+   - jakości kępek (równomierność, ciężkość, jak siedzą na rzęsach naturalnych),
+   - doborze długości i skrętu (czy są bezpieczne dla naturalnych rzęs),
+   - ogólnym efekcie estetycznym (czystość pracy, estetyka linii, styl).
+
+Struktura odpowiedzi:
+1. Krótkie podsumowanie postępu (2–3 zdania).
+2. Co jest zrobione dobrze – wypunktuj.
+3. Co można poprawić – wypunktuj, bardzo konkretnie (jak na szkoleniu).
+4. Sugestie dla stylistki – praktyczne wskazówki (technika, dobranie długości, kierunek, separacja, praca z klejem).
+
+Pisz profesjonalnie, ale wspierająco – jak instruktor, który chce, aby stylistka robiła coraz lepsze aplikacje.
+    `.trim();
+  }
+
+  return `
+You are a lash extension expert and trainer for UPLashes.
+You receive TWO PHOTOS: BEFORE (prior to application or lower-quality set) and AFTER (improved/final set).
+
+Your task:
+1) Compare these photos like a PRO trainer.
+2) Return clear, structured feedback in ENGLISH.
+3) Focus on:
+   - lash density and fill along the lash line,
+   - direction, symmetry and overall mapping,
+   - fan quality (evenness, weight, how they sit on natural lashes),
+   - length and curl choice (are they safe and suitable for the natural lashes?),
+   - overall look (clean work, neatness of the lash line, style).
+
+Structure your answer:
+1. Short summary of progress (2–3 sentences).
+2. What looks good – bullet points.
+3. What should be improved – bullet points, very concrete (as in a training review).
+4. Suggestions for the lash tech – practical tips (technique, length choice, direction, separation, glue control).
+
+Write in a professional but supportive tone – like a trainer who wants the lash tech to grow.
+  `.trim();
 }
 
-// ====== ENDPOINT: /api/analyze-before-after ======
+// ====== ENDPOINT: /api/analyze-before-after – DWIE FOTY (JSON, base64) ======
 app.post("/api/analyze-before-after", async (req, res) => {
-  ...
+  try {
+    const { beforeImage, afterImage, language = "pl" } = req.body || {};
+
+    if (!beforeImage || !afterImage) {
+      return res.status(400).json({
+        error: "Both beforeImage and afterImage are required.",
+      });
+    }
+
+    const prompt = buildBeforeAfterPrompt(language === "en" ? "en" : "pl");
+
+    const openaiResponse = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: prompt,
+            },
+            {
+              type: "input_image",
+              image_url: beforeImage,
+            },
+            {
+              type: "input_image",
+              image_url: afterImage,
+            },
+          ],
+        },
+      ],
+    });
+
+    console.log(
+      "Odpowiedź BEFORE/AFTER z OpenAI:",
+      JSON.stringify(openaiResponse, null, 2)
+    );
+
+    let analysisText = extractTextFromResponse(openaiResponse);
+
+    if (!analysisText) {
+      analysisText =
+        language === "pl"
+          ? "Model nie zwrócił szczegółowego raportu dla porównania BEFORE/AFTER."
+          : "Model did not return a detailed BEFORE/AFTER comparison.";
+    }
+
+    return res.json({ analysisText });
+  } catch (error) {
+    console.error("Błąd w /api/analyze-before-after:", error);
+
+    return res.status(500).json({
+      error: "Błąd serwera podczas analizy BEFORE/AFTER.",
+      details: error.message || String(error),
+    });
+  }
 });
+
+// Start serwera
+app.listen(PORT, () => {
+  console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
+});
+
+
