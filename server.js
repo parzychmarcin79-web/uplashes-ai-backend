@@ -77,7 +77,7 @@ Jeśli widzisz stylizację (przedłużone rzęsy):
    - inny – opisz krótko.
 3. Jeśli nie masz 100% pewności, zaznacz, że to ocena na podstawie zdjęcia.
 
-KROK 4 – ZAAWANSOWANA ANALIZA TECHNICZNA (A)
+KROK 4 – ZAawansowana ANALIZA TECHNICZNA (A)
 Opisz krótko poniższe elementy:
 
 1. Gęstość i pokrycie linii rzęs
@@ -240,7 +240,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
-      response_format: { type: "text" }, // prosimy o tekst
+      // UWAGA: BEZ response_format – domyślnie dostajemy tekst
       input: [
         {
           role: "user",
@@ -258,8 +258,10 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       ],
     });
 
-    // UWAGA: nie używamy JSON.stringify(openaiResponse) – powoduje błąd "circular structure"
-    console.log("Odpowiedź OpenAI otrzymana.");
+    console.log(
+      "Odpowiedź z OpenAI (surowa):",
+      JSON.stringify(openaiResponse, null, 2)
+    );
 
     let analysis = extractTextFromResponse(openaiResponse);
 
@@ -269,9 +271,6 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     return res.json({
       success: true,
-      // FRONT szuka pola "report", więc je dodajemy:
-      report: analysis,
-      // Zostawiamy też analysis, gdyby front kiedyś używał:
       analysis,
     });
   } catch (error) {
