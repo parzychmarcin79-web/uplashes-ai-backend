@@ -31,7 +31,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ================== PROMPT SYSTEMOWY ==================
+// ================== PROMPT SYSTEMOWY (JEDNO ZDJĘCIE) ==================
 
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
@@ -167,7 +167,7 @@ Na końcu dodaj:
 Nie krytykuj klientki ani stylistki – pisz życzliwie i konstruktywnie.
 `;
 
-// ================== ROUTES ==================
+// ================== ROUTES PODSTAWOWE ==================
 
 // Prosty endpoint zdrowia
 app.get("/", (req, res) => {
@@ -182,10 +182,10 @@ app.get("/ping", (req, res) => {
   });
 });
 
-// Pomocnicza funkcja – agresywne wyciąganie tekstu z odpowiedzi OpenAI
+// ================== POMOCNICZA FUNKCJA – TEKST Z ODPOWIEDZI ==================
+
 function extractTextFromResponse(openaiResponse) {
   try {
-    // 1) Najpierw spróbuj prostego helpera
     if (typeof openaiResponse.output_text === "string") {
       const t = openaiResponse.output_text.trim();
       if (t) return t;
@@ -193,7 +193,6 @@ function extractTextFromResponse(openaiResponse) {
 
     let chunks = [];
 
-    // 2) Parsowanie output[]
     if (Array.isArray(openaiResponse.output)) {
       for (const item of openaiResponse.output) {
         if (!item || !Array.isArray(item.content)) continue;
@@ -201,7 +200,6 @@ function extractTextFromResponse(openaiResponse) {
         for (const part of item.content) {
           if (!part) continue;
 
-          // Nowy format: { type: "output_text", text: [ { type: "text", text: "..." } ] }
           if (Array.isArray(part.text)) {
             for (const t of part.text) {
               if (t && typeof t.text === "string") {
@@ -225,7 +223,9 @@ function extractTextFromResponse(openaiResponse) {
 
   return "";
 }
-// GŁÓWNY ENDPOINT ANALIZY – JEDNO ZDJĘCIE
+
+// ================== ENDPOINT: /analyze – JEDNO ZDJĘCIE ==================
+
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -239,7 +239,6 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
-      // UWAGA: BEZ response_format – domyślnie dostajemy tekst
       input: [
         {
           role: "user",
@@ -283,7 +282,8 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// ====== HELPER: prompt do analizy BEFORE / AFTER ======
+// ================== HELPER – PROMPT BEFORE / AFTER ==================
+
 function buildBeforeAfterPrompt(language) {
   const isPL = language === "pl";
 
@@ -336,7 +336,8 @@ Write in a professional but supportive tone – like a trainer who wants the las
   `.trim();
 }
 
-// ====== ENDPOINT: /api/analyze-before-after – DWIE FOTY (JSON, base64) ======
+// ================== ENDPOINT: BEFORE / AFTER ==================
+
 app.post("/api/analyze-before-after", async (req, res) => {
   try {
     const { beforeImage, afterImage, language = "pl" } = req.body || {};
@@ -397,9 +398,8 @@ app.post("/api/analyze-before-after", async (req, res) => {
   }
 });
 
-// Start serwera
+// ================== START SERWERA ==================
+
 app.listen(PORT, () => {
   console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
 });
-
-
