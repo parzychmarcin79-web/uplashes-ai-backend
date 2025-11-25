@@ -136,7 +136,7 @@ Zwróć odpowiedź w formie krótkiego raportu w Markdown:
 
 ### AI.UPLashes REPORT
 
-1. Czy widzę stylizację?
+1. Ocena zdjęcia i rodzaju rzęs?
    - Krótka informacja: aplikacja / naturalne rzęsy / zdjęcie nieprzydatne.
 
 2. Typ stylizacji (jeśli jest):
