@@ -282,60 +282,6 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// ================== HELPER – PROMPT BEFORE / AFTER ==================
-
-function buildBeforeAfterPrompt(language) {
-  const isPL = language === "pl";
-
-  if (isPL) {
-    return `
-Jesteś ekspertem od stylizacji rzęs i instruktorem UPLashes.
-Otrzymujesz DWIE FOTOGRAFIE: BEFORE (przed aplikacją lub gorsza stylizacja) oraz AFTER (po aplikacji / poprawiona stylizacja).
-
-Twoje zadanie:
-1) Porównaj te zdjęcia jak instruktor na szkoleniu PRO.
-2) Zwróć jasny, konkretny feedback w języku POLSKIM.
-3) Skup się na:
-   - gęstości rzęs i wypełnieniu linii,
-   - kierunku rzęs i symetrii,
-   - jakości kępek (równomierność, ciężkość, jak siedzą na rzęsach naturalnych),
-   - doborze długości i skrętu (czy są bezpieczne dla naturalnych rzęs),
-   - ogólnym efekcie estetycznym (czystość pracy, estetyka linii, styl).
-
-Struktura odpowiedzi:
-1. Krótkie podsumowanie postępu (2–3 zdania).
-2. Co jest zrobione dobrze – wypunktuj.
-3. Co można poprawić – wypunktuj, bardzo konkretnie (jak na szkoleniu).
-4. Sugestie dla stylistki – praktyczne wskazówki (technika, dobranie długości, kierunek, separacja, praca z klejem).
-
-Pisz profesjonalnie, ale wspierająco – jak instruktor, który chce, aby stylistka robiła coraz lepsze aplikacje.
-    `.trim();
-  }
-
-  return `
-You are a lash extension expert and trainer for UPLashes.
-You receive TWO PHOTOS: BEFORE (prior to application or lower-quality set) and AFTER (improved/final set).
-
-Your task:
-1) Compare these photos like a PRO trainer.
-2) Return clear, structured feedback in ENGLISH.
-3) Focus on:
-   - lash density and fill along the lash line,
-   - direction, symmetry and overall mapping,
-   - fan quality (evenness, weight, how they sit on natural lashes),
-   - length and curl choice (are they safe and suitable for the natural lashes?),
-   - overall look (clean work, neatness of the lash line, style).
-
-Structure your answer:
-1. Short summary of progress (2–3 sentences).
-2. What looks good – bullet points.
-3. What should be improved – bullet points, very concrete (as in a training review).
-4. Suggestions for the lash tech – practical tips (technique, length choice, direction, separation, glue control).
-
-Write in a professional but supportive tone – like a trainer who wants the lash tech to grow.
-  `.trim();
-}
-
 // ================== ENDPOINT: BEFORE / AFTER ==================
 
 app.post("/api/analyze-before-after", async (req, res) => {
@@ -393,6 +339,121 @@ app.post("/api/analyze-before-after", async (req, res) => {
 
     return res.status(500).json({
       error: "Błąd serwera podczas analizy BEFORE/AFTER.",
+      details: error.message || String(error),
+    });
+  }
+});
+
+// ====== ENDPOINT: /lash-map-text – tekstowa mapa rzęs na podstawie zdjęcia ======
+
+app.post("/lash-map-text", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Brak zdjęcia w żądaniu (pole 'image').",
+      });
+    }
+
+    const language = (req.body && req.body.language) || "pl";
+    const base64Image = req.file.buffer.toString("base64");
+
+    const mapPrompt = `
+Jesteś ekspertem UPLashes i tworzysz PROPOZYCJĘ MAPY RZĘS na podstawie zdjęcia oka.
+
+ZASADY:
+- Odpowiadasz TYLKO po polsku.
+- Piszesz krótko, konkretnie, jak do stylistki rzęs.
+- Nie opisujesz ogólnej teorii – tylko gotowy plan stylizacji i mapę.
+
+KROK 1 – Co widzisz na zdjęciu?
+- Napisz jednym zdaniem, co widzisz:
+  - naturalne rzęsy bez stylizacji
+  - albo rzęsy po aplikacji (jaka mniej więcej: klasyczna / light volume / mocny volume / mega / anime / wispy).
+
+KROK 2 – Rekomendowany typ stylizacji
+- Zaproponuj 1–2 konkretne typy stylizacji, które polecasz do tego oka, np.:
+  - Light Volume 2–3D, efekt delikatny
+  - Fox Look 3–4D, efekt wydłużający
+  - Dolly Eye, efekt otwierający oko
+  - Wispy / Kim K
+  - Anime / Manga
+- Napisz krótko DLACZEGO (max 2 zdania).
+
+KROK 3 – Mapa długości (górna powieka)
+- Podaj konkretną mapę w milimetrach, od kącika wewnętrznego do zewnętrznego.
+- Używaj realnych długości (6–15 mm).
+- Forma:
+  "Mapa długości (od wewnątrz): 7 – 8 – 9 – 10 – 11 – 12 mm"
+- Jeśli oko jest małe / słabe naturalne rzęsy – dobierz krótsze i bezpieczne długości.
+
+KROK 4 – Skręty i grubości
+- Podaj konkretne skręty (C / CC / D / DD).
+- Podaj grubość (0.03 / 0.05 / 0.07) – w zależności od tego, czy stylizacja jest delikatna, volume czy mega volume.
+- Napisz w jednym wierszu, np.:
+  "Proponowane: CC, 0.07 (light volume) / CC, 0.05 (mocniejszy volume)".
+
+KROK 5 – Podsumowanie dla stylistki
+- W max 3 punktach wypisz:
+  - co będzie NAJBEZPIECZNIEJSZE dla tych naturalnych rzęs,
+  - co da NAJLEPSZY efekt wizualny,
+  - na co uważać (np. za duże długości, zbyt mocny skręt przy opadającej powiece itp.).
+
+Odpowiedź zwróć w formie krótkiego mini-raportu:
+
+1. Co widzę na zdjęciu:
+   - ...
+
+2. Rekomendowana stylizacja:
+   - ...
+
+3. Mapa długości (górna powieka):
+   - ...
+
+4. Skręt i grubość:
+   - ...
+
+5. Najważniejsze wskazówki:
+   - ...
+    `.trim();
+
+    const openaiResponse = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: mapPrompt,
+            },
+            {
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${base64Image}`,
+            },
+          ],
+        },
+      ],
+    });
+
+    console.log(
+      "Odpowiedź OpenAI (lash-map-text):",
+      JSON.stringify(openaiResponse, null, 2)
+    );
+
+    const mapText =
+      extractTextFromResponse(openaiResponse) ||
+      "Nie udało się wygenerować czytelnej mapy rzęs dla tego zdjęcia.";
+
+    return res.json({
+      success: true,
+      mapText,
+    });
+  } catch (error) {
+    console.error("Błąd w /lash-map-text:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Błąd serwera podczas generowania mapy rzęs.",
       details: error.message || String(error),
     });
   }
