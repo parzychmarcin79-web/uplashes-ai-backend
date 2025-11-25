@@ -513,6 +513,71 @@ Odpowiedź zwróć w formie krótkiego mini-raportu:
 });
 
 // ================== START SERWERA ==================
+// ================== ENDPOINT: GENEROWANIE MAPKI RZĘS ==================
+
+app.post("/generate-map", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: "Brak zdjęcia. Wgraj zdjęcie oka, aby wygenerować mapkę.",
+      });
+    }
+
+    const language = req.body.language === "pl" ? "pl" : "pl";
+
+    const prompt = `
+Jesteś ekspertem stylizacji rzęs w stylu UPLashes.
+Na podstawie zdjęcia oka wygeneruj propozycję mapki rzęs.
+
+WYNIK MA BYĆ TYLKO TEKSTEM — BEZ OBRAZKA.
+
+1. Oceń naturalny kształt oka.
+2. Zaproponuj styl:
+- klasyczna / light volume / mega volume / anime / spike / kim k
+- krótko uzasadnij dlaczego.
+
+3. Zaproponuj mapkę rzęs:
+- wypisz długości od wewnętrznego do zewnętrznego kącika
+  przykład: 7–8–9–10–11–12–12–11
+- wypisz skręt (np. C, CC, D, M)
+- wypisz grubość (0.10 / 0.12 / 0.15 lub 0.05 / 0.07)
+
+4. Wszystkie długości i skręty mają być zgodne z produktami UPLashes.
+
+5. Zakończ krótką rekomendacją stylizacji.
+
+Odpowiedź tylko po polsku.
+    `.trim();
+
+    const openaiResponse = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            {
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${req.file.buffer.toString("base64")}`,
+            },
+          ],
+        },
+      ],
+    });
+
+    const map = extractTextFromResponse(openaiResponse) || 
+                "Model nie zwrócił żadnej mapki.";
+
+    return res.json({ map });
+
+  } catch (error) {
+    console.error("Błąd generowania mapki:", error);
+    return res.status(500).json({
+      error: "Błąd podczas generowania mapki.",
+      details: error.message,
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
