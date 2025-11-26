@@ -10,7 +10,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
-const mapRouter = require("./generateMap");
+
 
 const app = express();
 
