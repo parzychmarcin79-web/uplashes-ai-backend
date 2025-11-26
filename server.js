@@ -10,12 +10,16 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
+const mapRouter = require("./generateMap");
 
 const app = express();
 
-// Middleware
+// Middleware – JEDEN raz
 app.use(cors());
 app.use(express.json());
+
+// Router map rzęs (np. /generate-map)
+app.use("/", mapRouter);
 
 // Multer – trzymamy plik w pamięci
 const upload = multer({
@@ -32,6 +36,7 @@ const client = new OpenAI({
 });
 
 // ================== PROMPT SYSTEMOWY (JEDNO ZDJĘCIE) ==================
+
 
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
