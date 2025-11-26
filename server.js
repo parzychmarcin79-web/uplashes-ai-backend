@@ -519,6 +519,58 @@ Odpowiedź zwróć w formie krótkiego mini-raportu:
     });
   }
 });
+// ================== ENDPOINT: MAPA RZĘS ==================
+
+app.post("/generate-map", upload.single("image"), async (req, res) => {
+  try {
+    const language = req.body.language === "en" ? "en" : "pl";
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: "Brak pliku ze zdjęciem. Wyślij zdjęcie w polu 'image'.",
+      });
+    }
+
+    const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString(
+      "base64"
+    )}`;
+
+    const systemPrompt =
+      language === "pl"
+        ? "Jesteś asystentem UPLashes. Na podstawie zdjęcia oka zaproponuj mapę rzęs: stylizacja, długości w strefach, skręt i grubość. Krótko i w formie listy."
+        : "You are an assistant for UPLashes. From the eye photo propose a lash map: style, lengths, curl, thickness.";
+
+    const openaiResponse = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: systemPrompt },
+            { type: "input_image", image_url: base64Image },
+          ],
+        },
+      ],
+    });
+
+    let mapText = extractTextFromResponse(openaiResponse);
+
+    if (!mapText) {
+      mapText =
+        language === "pl"
+          ? "Model nie zwrócił mapy dla tego zdjęcia."
+          : "Model did not return a map.";
+    }
+
+    return res.json({ map: mapText });
+  } catch (error) {
+    console.error("Błąd w /generate-map:", error);
+    return res.status(500).json({
+      error: "Błąd serwera podczas generowania mapy rzęs.",
+      details: error.message || String(error),
+    });
+  }
+});
 
 // ================== START SERWERA ==================
 // ================== ENDPOINT: GENEROWANIE MAPKI RZĘS ==================
