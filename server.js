@@ -10,8 +10,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
-// NA RAZIE BEZ MAPKI – generateMap poprawimy osobno
-// const mapRouter = require("./generateMap");
+const mapRouter = require("./generateMap");
 
 const app = express();
 
@@ -19,8 +18,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// TU WRÓCIMY DO MAPKI, KIEDY generateMap.js BĘDZIE GOTOWE
-// app.use("/", mapRouter);
+// Router map rzęs (np. /generate-map)
+app.use("/", mapRouter);
 
 // Multer – trzymamy plik w pamięci
 const upload = multer({
@@ -37,6 +36,7 @@ const client = new OpenAI({
 });
 
 // ================== PROMPT SYSTEMOWY (JEDNO ZDJĘCIE) ==================
+
 
 
 
