@@ -18,8 +18,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Router map rzęs (np. /generate-map)
-app.use("/", mapRouter);
+
 
 // Multer – trzymamy plik w pamięci
 const upload = multer({
