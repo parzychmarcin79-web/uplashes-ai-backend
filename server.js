@@ -416,8 +416,7 @@ app.post("/api/analyze-before-after", async (req, res) => {
   }
 });
 
-// ====== ENDPOINT: /lash-map-text – tekstowa mapa rzęs na podstawie zdjęcia ======
-
+// =======================  ENDPOINT: /generate-map  ==========================
 app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -427,53 +426,21 @@ app.post("/generate-map", upload.single("image"), async (req, res) => {
       });
     }
 
-    const language = (req.body.language || "pl").toLowerCase();
     const base64Image = req.file.buffer.toString("base64");
 
-    // 🔹 PROMPT – Styl B, analiza oka + długości + brak anime/spike jeśli nie widać
     const systemPrompt = `
-Jesteś ekspertem stylizacji rzęs i trenerem marki UPLashes.
-Oceniasz JEDNO oko na zdjęciu. Masz przygotować PROPOZYCJĘ MAPY RZĘS.
+Jesteś asystentem UPLashes. Na podstawie zdjęcia oka:
+- oceniasz kształt i proporcje,
+- dobierasz MAPKĘ DŁUGOŚCI rzęs w 9 strefach (1–9, od wewnętrznego do zewnętrznego kącika),
+- zapisujesz ją JEDNYM ciągiem liczb, np. "7-8-9-10-11-10-9-8-7".
 
-ZASADY OGÓLNE (BARDZO WAŻNE):
-- Oceniaj TYLKO to, co WIDZISZ na zdjęciu.
-- Zwracaj szczególną uwagę na:
-  • brakujące rzęsy w wewnętrznych i zewnętrznych kącikach,
-  • przerwy w linii rzęs,
-  • zbyt długie lub zbyt krótkie długości w kącikach,
-  • naturalny kształt oka (almond, round itp.).
-- NIE pisz o "anime lash" ani "spike" ani "wispy", JEŚLI na zdjęciu wyraźnie tego nie widać.
-- Jeśli styl wygląda klasycznie / light volume – tak go nazywaj.
-- Jeśli coś jest nieczytelne, napisz to wprost (np. "zdjęcie zbyt ciemne").
+ZWRÓĆ ODPOWIEDŹ TYLKO W FORMIE:
+MAP: 7-8-9-10-11-10-9-8-7
 
-WYJŚCIE MA BYĆ PO POLSKU.
-
-STRUKTURA ODPOWIEDZI (TRZYMAJ SIĘ TEGO FORMATU):
-
-1. Kształt oka:
-   - krótko opisz (np. "Lekkie almond, delikatnie opadający zewnętrzny kącik").
-
-2. Styl i efekt:
-   - zaproponuj styl (np. "Light volume, naturalny efekt podkreślający kształt oka").
-
-3. MAPA DŁUGOŚCI:
-   - WYGENERUJ LINIĘ z dziewięcioma długościami w milimetrach,
-     od wewnętrznego do zewnętrznego kącika.
-   - UŻYJ DOKŁADNIE TAKIEGO FORMATU (JEDEN WARIANT, BEZ DODAWANIA INNYCH):
-     MAPA: 7-8-9-10-11-11-10-9-8
-   - Tylko cyfry i myślniki, BEZ "mm" w tej linii.
-   - Dobierz długości tak, aby:
-     • w wewnętrznym kąciku były wyraźnie krótsze,
-     • środek był najwyższym punktem (chyba że oko wymaga innego efektu),
-     • w zewnętrznym kąciku nie były zbyt długie (żeby oko nie opadało).
-
-4. Dodatkowe wskazówki:
-   - krótko napisz, co warto poprawić / na co uważać
-   - szczególnie skomentuj:
-     • wewnętrzny kącik,
-     • środek linii,
-     • zewnętrzny kącik.
-`;
+Bez dodatkowego opisu, komentarzy, tekstu.
+Jeśli zdjęcie jest całkowicie nieczytelne, zwróć:
+MAP: 7-8-9-10-11-10-9-8-7
+    `.trim();
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -492,16 +459,24 @@ STRUKTURA ODPOWIEDZI (TRZYMAJ SIĘ TEGO FORMATU):
     });
 
     const rawText =
-      openaiResponse?.output_text ||
-      openaiResponse?.data?.[0]?.content?.[0]?.text ||
-      "";
+      openaiResponse.output[0]?.content?.[0]?.text?.trim() || "";
 
-    if (!rawText) {
-      return res.status(500).json({
-        success: false,
-        error: "Model nie zwrócił żadnego tekstu mapy.",
-      });
-    }
+    // wyciągamy sam ciąg po "MAP:"
+    const match = rawText.match(/MAP:\s*([0-9\-\s]+)/i);
+    const mapString = match ? match[1].trim() : rawText;
+
+    return res.json({
+      success: true,
+      map: mapString,
+    });
+  } catch (error) {
+    console.error("Błąd w /generate-map:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Błąd po stronie serwera przy generowaniu mapy.",
+    });
+  }
+});
 
     // Szukamy linii "MAPA: 8-9-10-..." – to będzie baza do mapy graficznej
     const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s–\-]+)/i);
