@@ -418,7 +418,7 @@ app.post("/api/analyze-before-after", async (req, res) => {
 
 // ====== ENDPOINT: /lash-map-text – tekstowa mapa rzęs na podstawie zdjęcia ======
 
-app.post("/lash-map-text", upload.single("image"), async (req, res) => {
+app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -427,63 +427,53 @@ app.post("/lash-map-text", upload.single("image"), async (req, res) => {
       });
     }
 
+    const language = (req.body.language || "pl").toLowerCase();
     const base64Image = req.file.buffer.toString("base64");
 
-    const mapPrompt = `
-Jesteś ekspertem UPLashes i tworzysz PROPOZYCJĘ MAPY RZĘS na podstawie zdjęcia oka.
+    // 🔹 PROMPT – Styl B, analiza oka + długości + brak anime/spike jeśli nie widać
+    const systemPrompt = `
+Jesteś ekspertem stylizacji rzęs i trenerem marki UPLashes.
+Oceniasz JEDNO oko na zdjęciu. Masz przygotować PROPOZYCJĘ MAPY RZĘS.
 
-ZASADY:
-- Odpowiadasz TYLKO po polsku.
-- Piszesz krótko, konkretnie, jak do stylistki rzęs.
-- Nie opisujesz ogólnej teorii – tylko gotowy plan stylizacji i mapę.
+ZASADY OGÓLNE (BARDZO WAŻNE):
+- Oceniaj TYLKO to, co WIDZISZ na zdjęciu.
+- Zwracaj szczególną uwagę na:
+  • brakujące rzęsy w wewnętrznych i zewnętrznych kącikach,
+  • przerwy w linii rzęs,
+  • zbyt długie lub zbyt krótkie długości w kącikach,
+  • naturalny kształt oka (almond, round itp.).
+- NIE pisz o "anime lash" ani "spike" ani "wispy", JEŚLI na zdjęciu wyraźnie tego nie widać.
+- Jeśli styl wygląda klasycznie / light volume – tak go nazywaj.
+- Jeśli coś jest nieczytelne, napisz to wprost (np. "zdjęcie zbyt ciemne").
 
-KROK 1 – Co widzisz na zdjęciu?
-- Napisz jednym zdaniem, co widzisz:
-  - naturalne rzęsy bez stylizacji
-  - albo rzęsy po aplikacji (jaka mniej więcej: klasyczna / light volume / mocny volume / mega / anime / wispy).
+WYJŚCIE MA BYĆ PO POLSKU.
 
-KROK 2 – Rekomendowany typ stylizacji
-- Zaproponuj 1–2 konkretne typy stylizacji, które polecasz do tego oka, np.:
-  - Light Volume 2–3D, efekt delikatny
-  - Fox Look 3–4D, efekt wydłużający
-  - Dolly Eye, efekt otwierający oko
-  - Wispy / Kim K
-  - Anime / Manga
-- Napisz krótko DLACZEGO (max 2 zdania).
+STRUKTURA ODPOWIEDZI (TRZYMAJ SIĘ TEGO FORMATU):
 
-KROK 3 – Mapa długości (górna powieka)
-- Podaj konkretną mapę w milimetrach, od kącika wewnętrznego do zewnętrznego.
-- Używaj realnych długości (6–15 mm).
-- Forma:
-  "Mapa długości (od wewnątrz): 7 – 8 – 9 – 10 – 11 – 12 mm"
+1. Kształt oka:
+   - krótko opisz (np. "Lekkie almond, delikatnie opadający zewnętrzny kącik").
 
-KROK 4 – Skręty i grubości
-- Podaj konkretne skręty (C / CC / D / DD).
-- Podaj grubość (0.03 / 0.05 / 0.07) – w zależności od tego, czy stylizacja jest delikatna, volume czy mega volume.
+2. Styl i efekt:
+   - zaproponuj styl (np. "Light volume, naturalny efekt podkreślający kształt oka").
 
-KROK 5 – Podsumowanie dla stylistki
-- W max 3 punktach wypisz:
-  - co będzie NAJBEZPIECZNIEJSZE dla tych naturalnych rzęs,
-  - co da NAJLEPSZY efekt wizualny,
-  - na co uważać.
+3. MAPA DŁUGOŚCI:
+   - WYGENERUJ LINIĘ z dziewięcioma długościami w milimetrach,
+     od wewnętrznego do zewnętrznego kącika.
+   - UŻYJ DOKŁADNIE TAKIEGO FORMATU (JEDEN WARIANT, BEZ DODAWANIA INNYCH):
+     MAPA: 7-8-9-10-11-11-10-9-8
+   - Tylko cyfry i myślniki, BEZ "mm" w tej linii.
+   - Dobierz długości tak, aby:
+     • w wewnętrznym kąciku były wyraźnie krótsze,
+     • środek był najwyższym punktem (chyba że oko wymaga innego efektu),
+     • w zewnętrznym kąciku nie były zbyt długie (żeby oko nie opadało).
 
-Odpowiedź zwróć w formie krótkiego mini-raportu:
-
-1. Co widzę na zdjęciu:
-   - ...
-
-2. Rekomendowana stylizacja:
-   - ...
-
-3. Mapa długości (górna powieka):
-   - ...
-
-4. Skręt i grubość:
-   - ...
-
-5. Najważniejsze wskazówki:
-   - ...
-    `.trim();
+4. Dodatkowe wskazówki:
+   - krótko napisz, co warto poprawić / na co uważać
+   - szczególnie skomentuj:
+     • wewnętrzny kącik,
+     • środek linii,
+     • zewnętrzny kącik.
+`;
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -491,7 +481,7 @@ Odpowiedź zwróć w formie krótkiego mini-raportu:
         {
           role: "user",
           content: [
-            { type: "input_text", text: mapPrompt },
+            { type: "input_text", text: systemPrompt },
             {
               type: "input_image",
               image_url: `data:image/jpeg;base64,${base64Image}`,
@@ -501,28 +491,38 @@ Odpowiedź zwróć w formie krótkiego mini-raportu:
       ],
     });
 
-    console.log(
-      "Odpowiedź OpenAI (lash-map-text):",
-      JSON.stringify(openaiResponse, null, 2)
-    );
+    const rawText =
+      openaiResponse?.output_text ||
+      openaiResponse?.data?.[0]?.content?.[0]?.text ||
+      "";
 
-    const mapText =
-      extractTextFromResponse(openaiResponse) ||
-      "Nie udało się wygenerować czytelnej mapy rzęs dla tego zdjęcia.";
+    if (!rawText) {
+      return res.status(500).json({
+        success: false,
+        error: "Model nie zwrócił żadnego tekstu mapy.",
+      });
+    }
+
+    // Szukamy linii "MAPA: 8-9-10-..." – to będzie baza do mapy graficznej
+    const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s–\-]+)/i);
+    const mapLine = mapLineMatch ? mapLineMatch[0] : "";
 
     return res.json({
       success: true,
-      mapText,
+      // pełny opis do panelu tekstowego
+      map: rawText,
+      // surowa linia z długościami (gdyby frontend chciał użyć bez regexa)
+      mapLine: mapLine,
     });
-  } catch (error) {
-    console.error("Błąd w /lash-map-text:", error);
+  } catch (err) {
+    console.error("Błąd /generate-map:", err);
     return res.status(500).json({
       success: false,
-      error: "Błąd serwera podczas generowania mapy rzęs.",
-      details: error.message || String(error),
+      error: "Błąd po stronie serwera podczas generowania mapy.",
     });
   }
 });
+
 
 // ===================== ENDPOINT: /generate-lash-map =====================
 app.post("/generate-lash-map", async (req, res) => {
