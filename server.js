@@ -294,6 +294,47 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
         },
       ],
     });
+// ===================== ENDPOINT: /generate-lash-map =====================
+app.post("/generate-lash-map", async (req, res) => {
+  try {
+    const { analysisText } = req.body || {};
+
+    const prompt = `
+Jesteś graficznym asystentem marki UPLashes.
+Na podstawie opisu wygeneruj prostą, czytelną MAPKĘ RZĘS jako obraz.
+
+Wytyczne mapki:
+- delikatna linia oka w odcieniach beżu i złota (UPLashes kolorystyka),
+- podział na 9 stref zgodnie z naturalną linią rzęs,
+- strefy podpisane 1–9,
+- długości zawsze w mm,
+- kącik wewnętrzny i zewnętrzny wyraźnie oznaczone,
+- jeśli opis zawiera informację o przerzedzeniu w kącikach — pokaż to na grafice,
+- styl ma przypominać profesjonalną stylizację rzęs, NIE anime, NIE spike,
+- na grafice NIE wolno używać słów anime/spike.
+
+Opis przekazany z analizy AI:
+${analysisText || "Brak dodatkowych danych – wygeneruj klasyczną mapkę 7–11 mm z delikatnym kępkowaniem."}
+    `;
+
+    const result = await client.images.generate({
+      model: "gpt-image-1",
+      prompt,
+      size: "1024x1024",
+    });
+
+    const base64 = result.data[0].b64_json;
+    const imageUrl = `data:image/png;base64,${base64}`;
+
+    res.json({ success: true, imageUrl });
+  } catch (err) {
+    console.error("Błąd generowania mapki:", err);
+    res.status(500).json({
+      success: false,
+      error: "Błąd generowania mapki graficznej.",
+    });
+  }
+});
 
     console.log(
       "Odpowiedź z OpenAI (surowa):",
