@@ -1,5 +1,4 @@
 // UPLashes AI – backend analizy zdjęć rzęs
-// Wersja z rozszerzoną analizą i mapkami
 
 require("dotenv").config();
 
@@ -10,35 +9,38 @@ const OpenAI = require("openai");
 
 const app = express();
 
-// Middleware tylko raz
+// ===== MIDDLEWARE (raz, globalnie) =====
 app.use(cors());
 app.use(express.json());
 
-// Multer – trzymamy plik w pamięci
+// Multer – plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// Port – Render zwykle podaje PORT w env
+// Port z Render albo 10000 lokalnie
 const PORT = process.env.PORT || 10000;
 
-// Klient OpenAI
+// Klient OpenAI (SDK v4)
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// =============== Endpointy podstawowe ===============
+// ===== PROSTE ENDPOINTY ZDROWIA =====
 
 app.get("/", (req, res) => {
   res.send("UPLashes AI – backend działa ✅");
 });
 
 app.get("/ping", (req, res) => {
-  res.json({ ok: true, message: "UPLashes AI backend działa i odpowiada na /ping" });
+  res.json({
+    ok: true,
+    message: "UPLashes AI backend działa i odpowiada na /ping",
+  });
 });
 
-// =============== Helper: wyciągnięcie tekstu z odpowiedzi OpenAI ===============
+// ===== HELPER: WYCIĄGANIE TEKSTU Z ODPOWIEDZI OpenAI (responses.create) =====
 
 function extractTextFromResponse(openaiResponse) {
   try {
@@ -58,9 +60,7 @@ function extractTextFromResponse(openaiResponse) {
 
           if (Array.isArray(part.text)) {
             for (const t of part.text) {
-              if (t && typeof t.text === "string") {
-                chunks.push(t.text);
-              }
+              if (t && typeof t.text === "string") chunks.push(t.text);
             }
           } else if (typeof part.text === "string") {
             chunks.push(part.text);
@@ -80,9 +80,10 @@ function extractTextFromResponse(openaiResponse) {
   return "";
 }
 
-// =============== Prompty ===============
+// ===== PROMPT GŁÓWNY (JEDNO ZDJĘCIE) =====
 
-const systemPrompt = `Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
+const systemPrompt = `
+Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
 
 ZASADA OGÓLNA:
 - Analizujesz JEDNO oko (jedną powiekę) na zdjęciu.
@@ -104,85 +105,53 @@ KROK 2 – CZY JEST APLIKACJA, CZY NATURALNE RZĘSY
 2. Jeśli widzisz TYLKO naturalne rzęsy:
    - Napisz, że nie widzisz stylizacji rzęs, tylko naturalne rzęsy.
    - Oceń gęstość i długość naturalnych rzęs, kierunek wzrostu, ewentualne ubytki.
-   - Zaproponuj 1–2 pasujące typy aplikacji (np. Klasyczne 1:1, Light Volume 2–3D, Anime, Mega Volume),
-     z krótkim uzasadnieniem.
-   - Na końcu dodaj: "Wstępna rekomendacja: …" (jaki typ aplikacji polecasz).
+   - Zaproponuj 1–2 pasujące typy aplikacji.
+   - Na końcu dodaj: "Wstępna rekomendacja: …".
    - W takim przypadku NIE rób szczegółowej analizy sklejeń, itp.
 
 KROK 3 – KLASYFIKACJA, JEŚLI JEST APLIKACJA
-Jeśli widzisz stylizację (przedłużone rzęsy):
+1. Określ typ aplikacji: Klasyczna 1:1 / Light Volume 2–3D / Volume 4–6D / Mega Volume 7D+.
+2. Określ styl: naturalny / delikatny volume / mocny volume / Anime / Spike / inny.
 
-1. Określ szacunkowy TYP APLIKACJI:
-   - Klasyczna 1:1
-   - Light Volume 2–3D
-   - Volume 4–6D
-   - Mega Volume 7D+
-2. Określ styl:
-   - naturalny
-   - delikatny volume
-   - mocny volume
-   - Anime / Spike Lashes (wyraźne kolce / spikes)
-   - inny – opisz krótko.
-3. Jeśli nie masz 100% pewności, zaznacz, że to ocena na podstawie zdjęcia.
+KROK 4 – ZAawansowana ANALIZA TECHNICZNA:
+- Gęstość i pokrycie
+- Kierunek i ustawienie
+- Mapowanie i długości
+- Sklejone rzęsy / separacja
+- Odrosty
+- Klej
 
-KROK 4 – ZAAWANSOWANA ANALIZA TECHNICZNA (A)
-Opisz krótko poniższe elementy:
+KROK 5 – JAKOŚĆ WACHLARZY (jeśli Volume/Mega).
+KROK 6 – Anime / Spike (jeśli dotyczy).
+KROK 7 – Format odpowiedzi: markdown z sekcjami 1–6 + podsumowanie.
+`;
 
-1. Gęstość i pokrycie linii rzęs
-2. Kierunek i ustawienie rzęs
-3. Mapowanie i długości
-4. Sklejone rzęsy / separacja
-5. Odrosty
-6. Klej
+// ===== PROMPT BEFORE / AFTER =====
 
-KROK 5 – JAKOŚĆ WACHLARZY VOLUME / MEGA VOLUME (B)
-Jeśli aplikacja wygląda na Volume 4–6D lub Mega Volume 7D+ – oceń wachlarze i ciężkość.
-W przeciwnym razie napisz: "B) Mega Volume: nie dotyczy tej aplikacji."
-
-KROK 6 – TRYB ANIME / SPIKE LASHES (C)
-Jeśli stylizacja ma wyraźne kolce / spikes – oceń ich jakość i rozmieszczenie.
-W przeciwnym razie napisz: "C) Anime / Spike Lashes: nie dotyczy tego zdjęcia."
-
-KROK 7 – FORMAT ODPOWIEDZI
-Zwróć odpowiedź w formie raportu Markdown:
-
-### AI.UPLashes REPORT
-
-1. Ocena zdjęcia i rodzaju rzęs
-2. Typ stylizacji (jeśli jest)
-3. Analiza techniczna (podpunkty)
-4. Jakość wachlarzy (jeśli Volume/Mega)
-5. Tryb Anime / Spike (jeśli dotyczy)
-6. Najważniejsze wskazówki do poprawy (max 3–5 punktów)
-
-Na końcu dodaj:
-"Wstępna klasyfikacja aplikacji: …"
-"Rekomendacja kolejnego kroku dla stylistki: …"`;
-
-// Prompt BEFORE/AFTER
 function buildBeforeAfterPrompt(language = "pl") {
-  return `Jesteś ekspertem UPLashes AI.
+  return `
+Jesteś ekspertem UPLashes AI.
 
-Twoje zadanie:
-Porównaj dwa zdjęcia rzęs: BEFORE (przed) i AFTER (po). Oceń, co się poprawiło,
-co można jeszcze dopracować i czy efekt jest spójny z dobrą praktyką stylizacji rzęs.
+Porównaj dwa zdjęcia rzęs: BEFORE (przed) i AFTER (po).
+Oceń, co się poprawiło, co można jeszcze dopracować.
 
-Odpowiadasz tylko po polsku.
+Odpowiadasz po polsku.
 
 Struktura odpowiedzi (Markdown):
 
 ### AI.UPLashes REPORT – BEFORE / AFTER
 
-1. Krótkie podsumowanie
-2. BEFORE – główne obserwacje
-3. AFTER – główne obserwacje
-4. Największa zmiana na plus (2–3 punkty)
-5. Co jeszcze można poprawić (max 3 punkty)
+1. Krótkie podsumowanie.
+2. BEFORE – główne obserwacje.
+3. AFTER – główne obserwacje.
+4. Największa zmiana na plus (2–3 punkty).
+5. Co jeszcze można poprawić (max 3 punkty).
 
-Pisz rzeczowo, krótko, jak mentor dla stylistki rzęs.`;
+Pisz rzeczowo, jak mentor dla stylistki rzęs.
+`;
 }
 
-// =============== ENDPOINT: /analyze – jedno zdjęcie ===============
+// ===== /analyze – JEDNO ZDJĘCIE =====
 
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
@@ -204,7 +173,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
             { type: "input_text", text: systemPrompt },
             {
               type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
+              image_url: `data:${req.file.mimetype};base64,${base64Image}`,
             },
           ],
         },
@@ -212,7 +181,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
     });
 
     console.log(
-      "Odpowiedź z OpenAI (surowa):",
+      "Odpowiedź z OpenAI (analyze):",
       JSON.stringify(openaiResponse, null, 2)
     );
 
@@ -221,13 +190,9 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       analysis = "Model nie zwrócił szczegółowego raportu.";
     }
 
-    return res.json({
-      success: true,
-      analysis,
-    });
+    return res.json({ success: true, analysis });
   } catch (error) {
     console.error("Błąd w /analyze:", error);
-
     return res.status(500).json({
       success: false,
       error: "Błąd serwera podczas analizy zdjęcia.",
@@ -236,7 +201,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// =============== ENDPOINT: BEFORE / AFTER ===============
+// ===== /api/analyze-before-after =====
 
 app.post("/api/analyze-before-after", async (req, res) => {
   try {
@@ -248,9 +213,7 @@ app.post("/api/analyze-before-after", async (req, res) => {
       });
     }
 
-    const prompt = buildBeforeAfterPrompt(
-      language === "en" ? "en" : "pl"
-    );
+    const prompt = buildBeforeAfterPrompt(language === "en" ? "en" : "pl");
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -272,7 +235,6 @@ app.post("/api/analyze-before-after", async (req, res) => {
     );
 
     let analysisText = extractTextFromResponse(openaiResponse);
-
     if (!analysisText) {
       analysisText =
         language === "pl"
@@ -283,7 +245,6 @@ app.post("/api/analyze-before-after", async (req, res) => {
     return res.json({ analysisText });
   } catch (error) {
     console.error("Błąd w /api/analyze-before-after:", error);
-
     return res.status(500).json({
       error: "Błąd serwera podczas analizy BEFORE/AFTER.",
       details: error.message || String(error),
@@ -291,36 +252,36 @@ app.post("/api/analyze-before-after", async (req, res) => {
   }
 });
 
-// =============== ENDPOINT: /generate-map – mapka tekstowa ===============
+// ===== /generate-map – TEKSTOWA MAPKA Z ZDJĘCIA =====
 
 app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
-    const file = req.file;
-
-    if (!file) {
+    if (!req.file) {
       return res.status(400).json({
         success: false,
         error: "Brak zdjęcia do analizy.",
       });
     }
 
-    const openaiResponse = await client.chat.completions.create({
+    const base64Image = req.file.buffer.toString("base64");
+
+    const mapPrompt = `
+Jesteś ekspertem stylizacji rzęs.
+Na podstawie zdjęcia wygeneruj TYLKO jedną linię w formacie:
+MAPA: 8-9-10-11-12-11-10-9-8
+Bez dodatkowego tekstu. Liczby są długościami rzęs w mm w 9 strefach od kącika wewnętrznego do zewnętrznego.
+`;
+
+    const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Jesteś ekspertem stylizacji rzęs. Zwróć tylko jedną linię: MAPA: 8-9-10-11-12-11-10-9-8",
-        },
+      input: [
         {
           role: "user",
           content: [
-            { type: "text", text: "Wygeneruj mapkę rzęs." },
+            { type: "input_text", text: mapPrompt },
             {
               type: "input_image",
-              image_url: `data:${file.mimetype};base64,${file.buffer.toString(
-                "base64"
-              )}`,
+              image_url: `data:${req.file.mimetype};base64,${base64Image}`,
             },
           ],
         },
@@ -337,7 +298,7 @@ app.post("/generate-map", upload.single("image"), async (req, res) => {
     return res.json({
       success: true,
       map: rawText,
-      mapLine: mapLine,
+      mapLine,
     });
   } catch (err) {
     console.error("Błąd /generate-map:", err);
@@ -348,51 +309,90 @@ app.post("/generate-map", upload.single("image"), async (req, res) => {
   }
 });
 
-// =============== ENDPOINT: /generate-lash-map – statyczna mapa SVG ===============
+// ===== /generate-lash-map – STATYCZNA MAPKA SVG (biała karta szkoleniowa) =====
 
 app.post("/generate-lash-map", async (req, res) => {
   try {
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+    const svg = `
+<?xml version="1.0" encoding="UTF-8"?>
 <svg width="600" height="260" viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="600" height="260" fill="#f9f7f3"/>
-  <text x="50%" y="40" text-anchor="middle" font-family="system-ui" font-size="18" fill="#444">
-    MAPKA RZĘS UPLashes
+  <rect x="0" y="0" width="600" height="260" fill="#ffffff"/>
+  <text x="50%" y="40" text-anchor="middle"
+        font-family="system-ui"
+        font-size="18" fill="#111827">
+    Mapka rzęs • UPLashes
   </text>
 
-  <path d="M 40 160 Q 300 40 560 160" fill="none" stroke="#c0b283" stroke-width="3" stroke-linecap="round"/>
+  <text x="50%" y="58" text-anchor="middle"
+        font-family="system-ui"
+        font-size="11" fill="#6b7280">
+    Styl B – białe tło, karta mappingowa
+  </text>
 
-  <g font-family="system-ui" font-size="12" fill="#444">
-    <circle cx="70" cy="150" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="70" y="154" text-anchor="middle">1</text>
+  <path d="M 80 150 A 260 260 0 0 1 520 150"
+        fill="none"
+        stroke="#d1d5db"
+        stroke-width="1.6" />
 
-    <circle cx="130" cy="130" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="130" y="134" text-anchor="middle">2</text>
+  <path d="M 80 210 A 260 260 0 0 1 520 210"
+        fill="none"
+        stroke="#9da3b1"
+        stroke-width="2.0" />
 
-    <circle cx="190" cy="115" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="190" y="119" text-anchor="middle">3</text>
+  <g font-family="system-ui" font-size="11" fill="#374151">
+    <line x1="110" y1="150" x2="110" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="110" y="138" text-anchor="middle">7 mm</text>
+    <text x="110" y="222" text-anchor="middle" fill="#6b7280">1</text>
 
-    <circle cx="250" cy="100" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="250" y="104" text-anchor="middle">4</text>
+    <line x1="160" y1="147" x2="160" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="160" y="135" text-anchor="middle">8 mm</text>
+    <text x="160" y="222" text-anchor="middle" fill="#6b7280">2</text>
 
-    <circle cx="310" cy="95" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="310" y="99" text-anchor="middle">5</text>
+    <line x1="210" y1="143" x2="210" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="210" y="131" text-anchor="middle">9 mm</text>
+    <text x="210" y="222" text-anchor="middle" fill="#6b7280">3</text>
 
-    <circle cx="370" cy="100" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="370" y="104" text-anchor="middle">6</text>
+    <line x1="260" y1="138" x2="260" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="260" y="126" text-anchor="middle">10 mm</text>
+    <text x="260" y="222" text-anchor="middle" fill="#6b7280">4</text>
 
-    <circle cx="430" cy="115" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="430" y="119" text-anchor="middle">7</text>
+    <line x1="310" y1="136" x2="310" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="310" y="124" text-anchor="middle">11 mm</text>
+    <text x="310" y="222" text-anchor="middle" fill="#6b7280">5</text>
 
-    <circle cx="490" cy="130" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="490" y="134" text-anchor="middle">8</text>
+    <line x1="360" y1="138" x2="360" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="360" y="126" text-anchor="middle">10 mm</text>
+    <text x="360" y="222" text-anchor="middle" fill="#6b7280">6</text>
 
-    <circle cx="550" cy="150" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
-    <text x="550" y="154" text-anchor="middle">9</text>
+    <line x1="410" y1="143" x2="410" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="410" y="131" text-anchor="middle">9 mm</text>
+    <text x="410" y="222" text-anchor="middle" fill="#6b7280">7</text>
+
+    <line x1="460" y1="147" x2="460" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="460" y="135" text-anchor="middle">8 mm</text>
+    <text x="460" y="222" text-anchor="middle" fill="#6b7280">8</text>
+
+    <line x1="510" y1="150" x2="510" y2="210" stroke="#d1d5db" stroke-width="1.2" />
+    <text x="510" y="138" text-anchor="middle">7 mm</text>
+    <text x="510" y="222" text-anchor="middle" fill="#6b7280">9</text>
   </g>
 
-  <text x="70" y="190" text-anchor="middle" font-size="11" fill="#666">Wewnętrzny kącik</text>
-  <text x="550" y="190" text-anchor="middle" font-size="11" fill="#666">Zewnętrzny kącik</text>
-</svg>`;
+  <text x="80" y="238"
+        text-anchor="start"
+        font-size="11"
+        font-family="system-ui"
+        fill="#6b7280">
+    Wewnętrzny kącik
+  </text>
+  <text x="520" y="238"
+        text-anchor="end"
+        font-size="11"
+        font-family="system-ui"
+        fill="#6b7280">
+    Zewnętrzny kącik
+  </text>
+</svg>
+    `;
 
     const base64 = Buffer.from(svg, "utf8").toString("base64");
     res.json({ success: true, imageUrl: `data:image/svg+xml;base64,${base64}` });
@@ -405,7 +405,7 @@ app.post("/generate-lash-map", async (req, res) => {
   }
 });
 
-// =============== Start serwera ===============
+// ===== START SERWERA =====
 
 app.listen(PORT, () => {
   console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
