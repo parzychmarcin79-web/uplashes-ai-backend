@@ -478,25 +478,24 @@ MAP: 7-8-9-10-11-10-9-8-7
   }
 });
 
-    // Szukamy linii "MAPA: 8-9-10-..." – to będzie baza do mapy graficznej
-    const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s–\-]+)/i);
-    const mapLine = mapLineMatch ? mapLineMatch[0] : "";
+   // Szukamy linii "MAPA: 8-9-10-..." - to będzie baza do mapy graficznej
+const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
+const mapLine = mapLineMatch ? mapLineMatch[0] : "";
 
-    return res.json({
-      success: true,
-      // pełny opis do panelu tekstowego
-      map: rawText,
-      // surowa linia z długościami (gdyby frontend chciał użyć bez regexa)
-      mapLine: mapLine,
-    });
-  } catch (err) {
-    console.error("Błąd /generate-map:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Błąd po stronie serwera podczas generowania mapy.",
-    });
-  }
+return res.json({
+  success: true,
+  // pełny opis do panelu tekstowego
+  map: rawText,
+  // surowa linia z długościami (gdyby frontend chciał użyć bez regexa)
+  mapLine: mapLine,
 });
+} catch (err) {
+  console.error("Błąd /generate-map:", err);
+  return res.status(500).json({
+    success: false,
+    error: "Błąd po stronie serwera podczas generowania mapy.",
+  });
+}
 
 
 // ===================== ENDPOINT: /generate-lash-map =====================
