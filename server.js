@@ -416,183 +416,129 @@ app.post("/api/analyze-before-after", async (req, res) => {
   }
 });
 
-// =======================  ENDPOINT: /generate-map  ==========================
+// ===================== ENDPOINT: /generate-map =====================
 app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) {
+    const file = req.file;
+    const lang = req.body.language || "pl";
+
+    if (!file) {
       return res.status(400).json({
         success: false,
-        error: "Brak zdjęcia w żądaniu (pole 'image').",
+        error: "Brak zdjęcia do analizy."
       });
     }
 
-    const base64Image = req.file.buffer.toString("base64");
-
-    const systemPrompt = `
-Jesteś asystentem UPLashes. Na podstawie zdjęcia oka:
-- oceniasz kształt i proporcje,
-- dobierasz MAPKĘ DŁUGOŚCI rzęs w 9 strefach (1–9, od wewnętrznego do zewnętrznego kącika),
-- zapisujesz ją JEDNYM ciągiem liczb, np. "7-8-9-10-11-10-9-8-7".
-
-ZWRÓĆ ODPOWIEDŹ TYLKO W FORMIE:
-MAP: 7-8-9-10-11-10-9-8-7
-
-Bez dodatkowego opisu, komentarzy, tekstu.
-Jeśli zdjęcie jest całkowicie nieczytelne, zwróć:
-MAP: 7-8-9-10-11-10-9-8-7
-    `.trim();
-
-    const openaiResponse = await client.responses.create({
+    // wysyłamy do OpenAI
+    const openaiResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      input: [
+      messages: [
+        {
+          role: "system",
+          content: "Jesteś ekspertem stylizacji rzęs. Zwróć tylko jedną linię: MAPA: 8-9-10-11-12-11-10-9-8"
+        },
         {
           role: "user",
           content: [
-            { type: "input_text", text: systemPrompt },
+            { type: "text", text: "Wygeneruj mapkę rzęs." },
             {
               type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
-            },
-          ],
-        },
-      ],
+              image_url: `data:${file.mimetype};base64,${file.buffer.toString("base64")}`
+            }
+          ]
+        }
+      ]
     });
 
     const rawText =
-      openaiResponse.output[0]?.content?.[0]?.text?.trim() || "";
+      extractTextFromResponse(openaiResponse) ||
+      "MAPA: 8-9-10-11-12-11-10-9-8";
 
-    // wyciągamy sam ciąg po "MAP:"
-    const match = rawText.match(/MAP:\s*([0-9\-\s]+)/i);
-    const mapString = match ? match[1].trim() : rawText;
-
-    return res.json({
-      success: true,
-      map: mapString,
-    });
-  } catch (error) {
-    console.error("Błąd w /generate-map:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Błąd po stronie serwera przy generowaniu mapy.",
-    });
-  }
-});
-
-  // Szukamy linii "MAPA: 8-9-10-..." - to będzie baza do mapy graficznej
-const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
-const mapLine = mapLineMatch ? mapLineMatch[0] : "";
-
-return res.json({
-  success: true,
-  // pełny opis do panelu tekstowego
-  map: rawText,
-  // surowa linia z długościami (gdyby frontend chciał użyć bez regexa)
-  mapLine: mapLine,
-});
-} catch (error) {
-  console.error("Błąd generowania mapki:", error);
-  return res.status(500).json({
-    success: false,
-    error: "Błąd podczas generowania mapki.",
-    details: error.message,
-  });
-}
-});
-
-// ===================== ENDPOINT: /generate-map =====================
-
-app.post("/generate-map", upload.single("image"), async (req, res) => {
-  try {
-    // 1. Walidacja – czy jest plik
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "Brak zdjęcia w żądaniu (pole 'image').",
-      });
-    }
-
-    // 2. Język odpowiedzi
-    const language = req.body.language === "en" ? "en" : "pl";
-
-    // 3. Konwersja obrazka do base64
-    const base64Image = req.file.buffer.toString("base64");
-
-    // 4. Prompt dla AI – prosimy o opis + linię MAPA: 8–9–10…
-    const systemPromptPL = `
-Jesteś ekspertem stylizacji rzęs. Na podstawie zdjęcia jednego oka zaproponuj:
-
-1) Krótki opis kształtu oka i rekomendacji stylu.
-2) Propozycję mapki rzęs (długości, skręt, grubość) w formie tekstu.
-
-W TEKŚCIE MUSI pojawić się jedna linia w dokładnym formacie:
-"MAPA: 8-9-10-11-12-11-10-9-8"
-
-Zamiast tych liczb wpisz swoje długości, ale zachowaj format:
-- słowo "MAPA:"
-- dalej tylko liczby i myślniki, np. "MAPA: 8-9-10-11-12-11-10-9-8".
-Nie dodawaj innych słów ani liter w tym wierszu.
-`;
-
-    const systemPromptEN = `
-You are a lash styling expert. Based on a close-up photo of one eye, propose:
-
-1) A short description of the eye shape and recommended lash style.
-2) A textual lash map (lengths, curl, thickness).
-
-In the TEXT you MUST include one line in this exact format:
-"MAPA: 8-9-10-11-12-11-10-9-8"
-
-Replace the numbers with your own lengths, but keep the format:
-- the word "MAPA:"
-- then only numbers and hyphens, e.g. "MAPA: 8-9-10-11-12-11-10-9-8".
-Do not add any other words or letters in that line.
-`;
-
-    const systemPrompt = language === "en" ? systemPromptEN : systemPromptPL;
-
-    // 5. Wywołanie OpenAI
-    const openaiResponse = await client.responses.create({
-      model: "gpt-4o-mini",
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: systemPrompt },
-            {
-              type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
-            },
-          ],
-        },
-      ],
-    });
-
-    // 6. Wyciągamy tekst z odpowiedzi
-    const rawText = extractTextFromResponse(openaiResponse) || "";
-
-    // 7. Szukamy linii "MAPA: 8-9-10-11-..." – baza do mapy graficznej
     const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
-    const mapLine = mapLineMatch ? mapLineMatch[0] : "";
+    const mapLine = mapLineMatch ? mapLineMatch[1].trim() : "";
 
-    // 8. Zwracamy do frontendu:
-    //    - pełny tekst do panelu po lewej
-    //    - surową linię z długościami (jeśli kiedyś będzie potrzebna)
     return res.json({
       success: true,
       map: rawText,
-      mapLine: mapLine,
+      mapLine: mapLine
     });
+
   } catch (err) {
     console.error("Błąd /generate-map:", err);
     return res.status(500).json({
       success: false,
-      error: "Błąd po stronie serwera podczas generowania mapy.",
+      error: "Błąd po stronie serwera podczas generowania mapy."
     });
   }
 });
 
-// ================== START SERWERA ==================
 
-app.listen(PORT, () => {
-  console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
+// ===================== ENDPOINT: /generate-lash-map =====================
+app.post("/generate-lash-map", async (req, res) => {
+  try {
+    const svg = `
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="600" height="260" viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="600" height="260" fill="#f9f7f3"/>
+  <text x="50%" y="40" text-anchor="middle"
+        font-family="system-ui"
+        font-size="18" fill="#444">
+    MAPKA RZĘS UPLashes
+  </text>
+
+  <path d="M 40 160 Q 300 40 560 160"
+        fill="none"
+        stroke="#c0b283"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <g font-family="system-ui" font-size="12" fill="#444">
+    <circle cx="70" cy="150" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="70" y="154" text-anchor="middle">1</text>
+
+    <circle cx="130" cy="130" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="130" y="134" text-anchor="middle">2</text>
+
+    <circle cx="190" cy="115" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="190" y="119" text-anchor="middle">3</text>
+
+    <circle cx="250" cy="100" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="250" y="104" text-anchor="middle">4</text>
+
+    <circle cx="310" cy="95" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="310" y="99" text-anchor="middle">5</text>
+
+    <circle cx="370" cy="100" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="370" y="104" text-anchor="middle">6</text>
+
+    <circle cx="430" cy="115" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="430" y="119" text-anchor="middle">7</text>
+
+    <circle cx="490" cy="130" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="490" y="134" text-anchor="middle">8</text>
+
+    <circle cx="550" cy="150" r="14" fill="#fff" stroke="#c0b283" stroke-width="2"/>
+    <text x="550" y="154" text-anchor="middle">9</text>
+  </g>
+
+  <text x="70" y="190" text-anchor="middle" font-size="11" fill="#666">
+    Wewnętrzny kącik
+  </text>
+  <text x="550" y="190" text-anchor="middle" font-size="11" fill="#666">
+    Zewnętrzny kącik
+  </text>
+</svg>
+    `;
+
+    const base64 = Buffer.from(svg, "utf8").toString("base64");
+    res.json({ success: true, imageUrl: `data:image/svg+xml;base64,${base64}` });
+
+  } catch (err) {
+    console.error("Błąd generowania mapki (SVG):", err);
+    res.status(500).json({
+      success: false,
+      error: "Błąd generowania mapki graficznej (SVG)."
+    });
+  }
 });
+
