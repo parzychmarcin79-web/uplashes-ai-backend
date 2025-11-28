@@ -499,97 +499,94 @@ return res.json({
 }
 });
 
-// ===================== ENDPOINT: /generate-lash-map =====================
-app.post("/generate-lash-map", async (req, res) => {
+// ===================== ENDPOINT: /generate-map =====================
+
+app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
-    // Prosta, statyczna mapka w SVG – łuk + 9 stref (Styl B – białe tło, karta mappingowa)
-    const svg = `
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="600" height="260" viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="600" height="260" fill="#ffffff"/>
+    // 1. Walidacja – czy jest plik
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Brak zdjęcia w żądaniu (pole 'image').",
+      });
+    }
 
-  <text x="50%" y="30" text-anchor="middle"
-        font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-        font-size="18" fill="#111827">
-    Mapka rzęs • UPLashes
-  </text>
+    // 2. Język odpowiedzi
+    const language = req.body.language === "en" ? "en" : "pl";
 
-  <text x="50%" y="48" text-anchor="middle"
-        font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-        font-size="11" fill="#6b7280">
-    Styl B – białe tło, karta mappingowa
-  </text>
+    // 3. Konwersja obrazka do base64
+    const base64Image = req.file.buffer.toString("base64");
 
-  <!-- łuk oka -->
-  <path d="M 90 190 A 220 220 0 0 1 530 190"
-        fill="none"
-        stroke="#e5e7eb"
-        stroke-width="1.6" />
+    // 4. Prompt dla AI – prosimy o opis + linię MAPA: 8–9–10…
+    const systemPromptPL = `
+Jesteś ekspertem stylizacji rzęs. Na podstawie zdjęcia jednego oka zaproponuj:
 
-  <path d="M 90 230 A 220 220 0 0 1 530 230"
-        fill="none"
-        stroke="#9ca3af"
-        stroke-width="1.8" />
+1) Krótki opis kształtu oka i rekomendacji stylu.
+2) Propozycję mapki rzęs (długości, skręt, grubość) w formie tekstu.
 
-  <!-- strefy 1–9 -->
-  <g font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-     font-size="12" fill="#444">
-    <!-- Strefa 1 -->
-    <circle cx="70" cy="210" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="70" y="214" text-anchor="middle">1</text>
+W TEKŚCIE MUSI pojawić się jedna linia w dokładnym formacie:
+"MAPA: 8-9-10-11-12-11-10-9-8"
 
-    <!-- Strefa 2 -->
-    <circle cx="130" cy="200" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="130" y="204" text-anchor="middle">2</text>
+Zamiast tych liczb wpisz swoje długości, ale zachowaj format:
+- słowo "MAPA:"
+- dalej tylko liczby i myślniki, np. "MAPA: 8-9-10-11-12-11-10-9-8".
+Nie dodawaj innych słów ani liter w tym wierszu.
+`;
 
-    <!-- Strefa 3 -->
-    <circle cx="190" cy="190" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="190" y="194" text-anchor="middle">3</text>
+    const systemPromptEN = `
+You are a lash styling expert. Based on a close-up photo of one eye, propose:
 
-    <!-- Strefa 4 -->
-    <circle cx="250" cy="182" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="250" y="186" text-anchor="middle">4</text>
+1) A short description of the eye shape and recommended lash style.
+2) A textual lash map (lengths, curl, thickness).
 
-    <!-- Strefa 5 -->
-    <circle cx="310" cy="178" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="310" y="182" text-anchor="middle">5</text>
+In the TEXT you MUST include one line in this exact format:
+"MAPA: 8-9-10-11-12-11-10-9-8"
 
-    <!-- Strefa 6 -->
-    <circle cx="370" cy="182" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="370" y="186" text-anchor="middle">6</text>
+Replace the numbers with your own lengths, but keep the format:
+- the word "MAPA:"
+- then only numbers and hyphens, e.g. "MAPA: 8-9-10-11-12-11-10-9-8".
+Do not add any other words or letters in that line.
+`;
 
-    <!-- Strefa 7 -->
-    <circle cx="430" cy="190" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="430" y="194" text-anchor="middle">7</text>
+    const systemPrompt = language === "en" ? systemPromptEN : systemPromptPL;
 
-    <!-- Strefa 8 -->
-    <circle cx="490" cy="200" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="490" y="204" text-anchor="middle">8</text>
+    // 5. Wywołanie OpenAI
+    const openaiResponse = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: systemPrompt },
+            {
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${base64Image}`,
+            },
+          ],
+        },
+      ],
+    });
 
-    <!-- Strefa 9 -->
-    <circle cx="550" cy="210" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
-    <text x="550" y="214" text-anchor="middle">9</text>
-  </g>
+    // 6. Wyciągamy tekst z odpowiedzi
+    const rawText = extractTextFromResponse(openaiResponse) || "";
 
-  <!-- podpisy kącików -->
-  <text x="90" y="248" text-anchor="start" font-size="11" fill="#6b7280">
-    Wewnętrzny kącik
-  </text>
-  <text x="530" y="248" text-anchor="end" font-size="11" fill="#6b7280">
-    Zewnętrzny kącik
-  </text>
-</svg>
-    `;
+    // 7. Szukamy linii "MAPA: 8-9-10-11-..." – baza do mapy graficznej
+    const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
+    const mapLine = mapLineMatch ? mapLineMatch[0] : "";
 
-    const base64 = Buffer.from(svg, "utf8").toString("base64");
-    const imageUrl = `data:image/svg+xml;base64,${base64}`;
-
-    return res.json({ success: true, imageUrl });
+    // 8. Zwracamy do frontendu:
+    //    - pełny tekst do panelu po lewej
+    //    - surową linię z długościami (jeśli kiedyś będzie potrzebna)
+    return res.json({
+      success: true,
+      map: rawText,
+      mapLine: mapLine,
+    });
   } catch (err) {
-    console.error("Błąd generowania mapki (SVG):", err);
+    console.error("Błąd /generate-map:", err);
     return res.status(500).json({
       success: false,
-      error: "Błąd generowania mapki graficznej (SVG).",
+      error: "Błąd po stronie serwera podczas generowania mapy.",
     });
   }
 });
