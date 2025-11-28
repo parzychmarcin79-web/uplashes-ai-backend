@@ -478,7 +478,7 @@ MAP: 7-8-9-10-11-10-9-8-7
   }
 });
 
-   // Szukamy linii "MAPA: 8-9-10-..." - to będzie baza do mapy graficznej
+  // Szukamy linii "MAPA: 8-9-10-..." - to będzie baza do mapy graficznej
 const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
 const mapLine = mapLineMatch ? mapLineMatch[0] : "";
 
@@ -489,112 +489,107 @@ return res.json({
   // surowa linia z długościami (gdyby frontend chciał użyć bez regexa)
   mapLine: mapLine,
 });
-} catch (err) {
-  console.error("Błąd /generate-map:", err);
+} catch (error) {
+  console.error("Błąd generowania mapki:", error);
   return res.status(500).json({
     success: false,
-    error: "Błąd po stronie serwera podczas generowania mapy.",
+    error: "Błąd podczas generowania mapki.",
+    details: error.message,
   });
 }
-
+});
 
 // ===================== ENDPOINT: /generate-lash-map =====================
 app.post("/generate-lash-map", async (req, res) => {
   try {
-    // Prosta, statyczna mapka w SVG – łuk + 9 stref
+    // Prosta, statyczna mapka w SVG – łuk + 9 stref (Styl B – białe tło, karta mappingowa)
     const svg = `
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="600" height="260" viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="600" height="260" fill="#f9f7f3"/>
-  <text x="50%" y="40" text-anchor="middle"
+  <rect x="0" y="0" width="600" height="260" fill="#ffffff"/>
+
+  <text x="50%" y="30" text-anchor="middle"
         font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-        font-size="18" fill="#444">
-    MAPKA RZĘS UPLashes
+        font-size="18" fill="#111827">
+    Mapka rzęs • UPLashes
+  </text>
+
+  <text x="50%" y="48" text-anchor="middle"
+        font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="11" fill="#6b7280">
+    Styl B – białe tło, karta mappingowa
   </text>
 
   <!-- łuk oka -->
-  <path d="M 40 160 Q 300 40 560 160"
+  <path d="M 90 190 A 220 220 0 0 1 530 190"
         fill="none"
-        stroke="#c0b283"
-        stroke-width="3"
-        stroke-linecap="round"/>
+        stroke="#e5e7eb"
+        stroke-width="1.6" />
+
+  <path d="M 90 230 A 220 220 0 0 1 530 230"
+        fill="none"
+        stroke="#9ca3af"
+        stroke-width="1.8" />
 
   <!-- strefy 1–9 -->
-  <!-- baza współrzędnych mniej więcej co 8–10% szerokości -->
-  <!-- kółka + podpisy -->
   <g font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
      font-size="12" fill="#444">
     <!-- Strefa 1 -->
-    <circle cx="70" cy="150" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="70" y="154" text-anchor="middle">1</text>
+    <circle cx="70" cy="210" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="70" y="214" text-anchor="middle">1</text>
 
     <!-- Strefa 2 -->
-    <circle cx="130" cy="130" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="130" y="134" text-anchor="middle">2</text>
+    <circle cx="130" cy="200" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="130" y="204" text-anchor="middle">2</text>
 
     <!-- Strefa 3 -->
-    <circle cx="190" cy="115" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="190" y="119" text-anchor="middle">3</text>
+    <circle cx="190" cy="190" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="190" y="194" text-anchor="middle">3</text>
 
     <!-- Strefa 4 -->
-    <circle cx="250" cy="100" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="250" y="104" text-anchor="middle">4</text>
+    <circle cx="250" cy="182" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="250" y="186" text-anchor="middle">4</text>
 
     <!-- Strefa 5 -->
-    <circle cx="310" cy="95" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="310" y="99" text-anchor="middle">5</text>
+    <circle cx="310" cy="178" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="310" y="182" text-anchor="middle">5</text>
 
     <!-- Strefa 6 -->
-    <circle cx="370" cy="100" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="370" y="104" text-anchor="middle">6</text>
+    <circle cx="370" cy="182" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="370" y="186" text-anchor="middle">6</text>
 
     <!-- Strefa 7 -->
-    <circle cx="430" cy="115" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="430" y="119" text-anchor="middle">7</text>
+    <circle cx="430" cy="190" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="430" y="194" text-anchor="middle">7</text>
 
     <!-- Strefa 8 -->
-    <circle cx="490" cy="130" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="490" y="134" text-anchor="middle">8</text>
+    <circle cx="490" cy="200" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="490" y="204" text-anchor="middle">8</text>
 
     <!-- Strefa 9 -->
-    <circle cx="550" cy="150" r="14" fill="#ffffff" stroke="#c0b283" stroke-width="2"/>
-    <text x="550" y="154" text-anchor="middle">9</text>
+    <circle cx="550" cy="210" r="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1.4"/>
+    <text x="550" y="214" text-anchor="middle">9</text>
   </g>
 
-  <!-- podpis kącików -->
-  <text x="70" y="190" text-anchor="middle" font-size="11" fill="#666">
+  <!-- podpisy kącików -->
+  <text x="90" y="248" text-anchor="start" font-size="11" fill="#6b7280">
     Wewnętrzny kącik
   </text>
-  <text x="550" y="190" text-anchor="middle" font-size="11" fill="#666">
+  <text x="530" y="248" text-anchor="end" font-size="11" fill="#6b7280">
     Zewnętrzny kącik
   </text>
 </svg>
     `;
 
-    // enkodowanie SVG do base64
     const base64 = Buffer.from(svg, "utf8").toString("base64");
     const imageUrl = `data:image/svg+xml;base64,${base64}`;
 
-    res.json({ success: true, imageUrl });
+    return res.json({ success: true, imageUrl });
   } catch (err) {
     console.error("Błąd generowania mapki (SVG):", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: "Błąd generowania mapki graficznej (SVG).",
-    });
-  }
-});
-
-
-    const map =
-      extractTextFromResponse(openaiResponse) || "Model nie zwrócił żadnej mapki.";
-
-    return res.json({ map });
-  } catch (error) {
-    console.error("Błąd generowania mapki:", error);
-    return res.status(500).json({
-      error: "Błąd podczas generowania mapki.",
-      details: error.message,
     });
   }
 });
