@@ -1,5 +1,5 @@
-// UPLashes AI – backend testowy + moduły OpenAI
-// Wersja z działającym statusem "live" i prostą mapą rzęs + analizą zdjęć
+// UPLashes AI – backend: status, mapa rzęs, analiza zdjęć (PL/EN)
+// Wersja z wieloma ścieżkami /analyze, żeby frontend nie rzucał 404
 
 const express = require("express");
 const cors = require("cors");
@@ -100,7 +100,6 @@ async function analyzeImageWithPrompt(imageBase64, systemPrompt) {
     throw new Error("Brak OPENAI_API_KEY w zmiennych środowiskowych.");
   }
 
-  // Node 18+ ma globalny fetch – nie potrzebujemy dodatkowych bibliotek
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -148,23 +147,26 @@ async function analyzeImageWithPrompt(imageBase64, systemPrompt) {
   return message;
 }
 
-// --------------------------------------------
-// ROUTE 4 – podstawowa analiza zdjęcia rzęs
-// POST /analyze-basic
-// body: { imageBase64: "...." }
-// --------------------------------------------
-app.post("/analyze-basic", async (req, res) => {
-  try {
-    const { imageBase64 } = req.body || {};
+// ===================================================
+// PROMPTY DLA JĘZYKÓW – basic / advanced
+// ===================================================
+function getBasicPrompt(language) {
+  if (language === "en") {
+    return `
+You are an experienced lash artist and educator.
+Analyze the client's lash photo and describe:
+- density (sparse / medium / full),
+- direction (even, crossing, messy),
+- overall application quality (isolation, attachment, neatness),
+- natural lash condition,
+- visible gaps,
+- 3–5 clear recommendations for the next appointment.
+Answer clearly, in short paragraphs, in English.
+    `;
+  }
 
-    if (!imageBase64) {
-      return res.status(400).json({
-        status: "error",
-        message: "Brak pola imageBase64 w zapytaniu.",
-      });
-    }
-
-    const systemPrompt = `
+  // domyślnie polski
+  return `
 Jesteś doświadczoną instruktorką stylizacji rzęs.
 Analizujesz zdjęcie rzęs klientki.
 Opisz:
@@ -172,37 +174,48 @@ Opisz:
 - kierunek (równe, rozchodzące się, krzyżujące),
 - jakość aplikacji (czy są przyklejone poprawnie, czy widać sklejki),
 - kondycję naturalnych rzęs,
-- ewentualne prześwity,
-- krótkie rekomendacje co poprawić przy następnej aplikacji.
-Odpowiedz zwięźle, maksymalnie kilka akapitów.
+- prześwity,
+- 3–5 konkretnych rekomendacji co poprawić przy następnej aplikacji.
+Odpowiedz po polsku, konkretnie, w kilku akapitach.
+  `;
+}
+
+function getAdvancedPrompt(language) {
+  if (language === "en") {
+    return `
+You are a lash trainer and technical expert.
+Analyze the lash application on the photo in a very technical way.
+Split the answer into sections:
+1) Overall application quality
+2) Technical mistakes (stickies, base direction, distance from the eyelid, attachment angle)
+3) Lengths & curls – are they suitable for this eye and natural lashes
+4) Safety for natural lashes (overload, damage, weak points)
+5) Step-by-step recommendations for the next appointment.
+
+Write in English, clear, direct, no fluff.
     `;
-
-    const resultText = await analyzeImageWithPrompt(imageBase64, systemPrompt);
-
-    return res.status(200).json({
-      status: "success",
-      module: "analyze-basic",
-      result: resultText,
-    });
-  } catch (err) {
-    console.error("Błąd w /analyze-basic:", err);
-    return res.status(500).json({
-      status: "error",
-      module: "analyze-basic",
-      message: "Błąd serwera przy analizie zdjęcia.",
-      details: err.message || String(err),
-    });
   }
-});
 
-// --------------------------------------------
-// ROUTE 5 – zaawansowana analiza (techniczna)
-// POST /analyze-advanced
-// body: { imageBase64: "...." }
-// --------------------------------------------
-app.post("/analyze-advanced", async (req, res) => {
+  return `
+Jesteś ekspertem od stylizacji rzęs i instruktorem.
+Analizujesz aplikację rzęs na zdjęciu bardzo technicznie.
+Podziel odpowiedź na sekcje:
+1) Ogólna jakość aplikacji
+2) Błędy techniczne (sklejki, odległość od powieki, kierunek, kąt przyklejenia)
+3) Długości i skręty – czy są dobrze dobrane do oka i naturalnych rzęs
+4) Bezpieczeństwo naturalnych rzęs (przeciążenie, uszkodzenia, słabe punkty)
+5) Konkretne rekomendacje krok po kroku na kolejną wizytę.
+
+Pisz po polsku, konkretnie, bez lania wody.
+  `;
+}
+
+// ===================================================
+// WSPÓLNA FUNKCJA HANDLERA DLA ANALIZY PODSTAWOWEJ
+// ===================================================
+async function handleAnalyzeBasic(req, res) {
   try {
-    const { imageBase64 } = req.body || {};
+    const { imageBase64, language } = req.body || {};
 
     if (!imageBase64) {
       return res.status(400).json({
@@ -211,28 +224,53 @@ app.post("/analyze-advanced", async (req, res) => {
       });
     }
 
-    const systemPrompt = `
-Jesteś ekspertem od stylizacji rzęs i instruktorem.
-Analizujesz aplikację rzęs na zdjęciu bardzo technicznie.
-Podziel odpowiedź na sekcje:
-1) Ogólna jakość aplikacji
-2) Błędy techniczne (np. sklejki, zła odległość od powieki, nierówny kierunek)
-3) Długości i skręty – czy są dobrze dobrane do oka
-4) Bezpieczeństwo naturalnych rzęs (czy są przeciążone, czy widać uszkodzenia)
-5) Rekomendacje krok po kroku, co poprawić przy kolejnej wizycie.
+    const lang = language === "en" ? "en" : "pl";
+    const systemPrompt = getBasicPrompt(lang);
+    const resultText = await analyzeImageWithPrompt(imageBase64, systemPrompt);
 
-Pisz konkretnie, bez lania wody.
-    `;
+    return res.status(200).json({
+      status: "success",
+      module: "analyze-basic",
+      language: lang,
+      result: resultText,
+    });
+  } catch (err) {
+    console.error("Błąd w handleAnalyzeBasic:", err);
+    return res.status(500).json({
+      status: "error",
+      module: "analyze-basic",
+      message: "Błąd serwera przy analizie zdjęcia.",
+      details: err.message || String(err),
+    });
+  }
+}
 
+// ===================================================
+// HANDLER DLA ANALIZY ZAAWANSOWANEJ
+// ===================================================
+async function handleAnalyzeAdvanced(req, res) {
+  try {
+    const { imageBase64, language } = req.body || {};
+
+    if (!imageBase64) {
+      return res.status(400).json({
+        status: "error",
+        message: "Brak pola imageBase64 w zapytaniu.",
+      });
+    }
+
+    const lang = language === "en" ? "en" : "pl";
+    const systemPrompt = getAdvancedPrompt(lang);
     const resultText = await analyzeImageWithPrompt(imageBase64, systemPrompt);
 
     return res.status(200).json({
       status: "success",
       module: "analyze-advanced",
+      language: lang,
       result: resultText,
     });
   } catch (err) {
-    console.error("Błąd w /analyze-advanced:", err);
+    console.error("Błąd w handleAnalyzeAdvanced:", err);
     return res.status(500).json({
       status: "error",
       module: "analyze-advanced",
@@ -240,7 +278,22 @@ Pisz konkretnie, bez lania wody.
       details: err.message || String(err),
     });
   }
-});
+}
+
+// --------------------------------------------
+// ROUTES – ANALIZA (WIELE ŚCIEŻEK, TEN SAM HANDLER)
+// --------------------------------------------
+
+// podstawowe, nowe
+app.post("/analyze-basic", handleAnalyzeBasic);
+// aliasy dla starego frontu
+app.post("/analyze", handleAnalyzeBasic);
+app.post("/analyze-lashes", handleAnalyzeBasic);
+app.post("/api/analyze", handleAnalyzeBasic);
+app.post("/api/analyze-lashes", handleAnalyzeBasic);
+
+// zaawansowana analiza
+app.post("/analyze-advanced", handleAnalyzeAdvanced);
 
 // --------------------------------------------
 // START SERWERA
