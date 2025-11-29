@@ -1,3 +1,5 @@
+// UPLashes AI – backend analizy zdjęć rzęs
+
 require("dotenv").config();
 
 const express = require("express");
@@ -5,14 +7,16 @@ const cors = require("cors");
 const multer = require("multer");
 const OpenAI = require("openai");
 
+// ---------------------------------------
+// Konfiguracja podstawowa
+// ---------------------------------------
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// MULTER (upload zdjęć)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
 const PORT = process.env.PORT || 10000;
@@ -21,57 +25,108 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ===============================================
-// Helper – extract text
-// ===============================================
+// ---------------------------------------
+// Helper – wyciąganie tekstu z Responses API
+// ---------------------------------------
 function extractTextFromResponse(resp) {
   try {
-    if (resp.output_text) return resp.output_text.trim();
+    if (resp && typeof resp.output_text === "string") {
+      const t = resp.output_text.trim();
+      if (t) return t;
+    }
 
-    let chunks = [];
-    if (resp.output) {
+    const chunks = [];
+
+    if (resp && Array.isArray(resp.output)) {
       for (const item of resp.output) {
-        if (!item.content) continue;
-        for (const c of item.content) {
-          if (typeof c.text === "string") chunks.push(c.text);
-          if (Array.isArray(c.text)) {
-            for (const t of c.text) if (t.text) chunks.push(t.text);
+        if (!item || !Array.isArray(item.content)) continue;
+
+        for (const part of item.content) {
+          if (!part) continue;
+
+          if (typeof part.text === "string") {
+            chunks.push(part.text);
+          } else if (Array.isArray(part.text)) {
+            for (const t of part.text) {
+              if (t && typeof t.text === "string") {
+                chunks.push(t.text);
+              }
+            }
+          } else if (typeof part.output_text === "string") {
+            chunks.push(part.output_text);
           }
         }
       }
     }
-    return chunks.join("\n").trim();
+
+    const joined = chunks.join("\n\n").trim();
+    return joined;
   } catch (e) {
+    console.error("extractTextFromResponse error:", e);
     return "";
   }
 }
 
-// ===============================================
-// PROMPT – analiza zdjęcia
-// ===============================================
-const systemPrompt = `
-Jesteś ekspertem UPLashes AI. Analizujesz stylizację rzęs na zdjęciu.
-Odpowiadasz po polsku. Jeśli na zdjęciu nie ma oka z bliska — napisz:
+// ---------------------------------------
+// Prompty
+// ---------------------------------------
+const systemPromptAnalyze = `
+Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
+Odpowiadasz po polsku, profesjonalnie, ale prosto.
+
+Jeśli NA ZDJĘCIU NIE MA oka z rzęsami z bliska:
+napisz TYLKO:
 "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
+
+Jeśli wszystko widać dobrze – przygotuj raport AI.UPLashes w punktach:
+- czy to naturalne rzęsy czy aplikacja,
+- typ stylizacji (klasyka, light volume, volume, mega volume, anime/spike lub inny),
+- gęstość i pokrycie linii rzęs,
+- kierunek i ustawienie,
+- separacja i sklejenia,
+- odrosty,
+- ilość kleju,
+- 3–5 najważniejszych wskazówek dla stylistki.
 `;
 
-// ===============================================
-// ENDPOINT: HEALTH CHECK
-// ===============================================
+function buildBeforeAfterPrompt() {
+  return `
+Jesteś ekspertem UPLashes AI.
+
+Porównujesz dwa zdjęcia rzęs: BEFORE (przed) i AFTER (po).
+Oceniasz:
+- co było problemem na BEFORE,
+- co się poprawiło na AFTER,
+- co nadal można ulepszyć.
+
+Odpowiedź po polsku w formie krótkiego raportu w punktach.
+`;
+}
+
+// ---------------------------------------
+// HEALTHCHECK
+// ---------------------------------------
 app.get("/", (req, res) => {
-  res.send("UPLashes AI backend działa");
+  res.send("UPLashes AI backend działa ✅");
 });
 
-// ===============================================
-// ENDPOINT: /analyze
-// ===============================================
+app.get("/ping", (req, res) => {
+  res.json({ ok: true, message: "UPLashes AI backend odpowiada na /ping" });
+});
+
+// ---------------------------------------
+// /analyze – jedno zdjęcie oka
+// ---------------------------------------
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, error: "Brak zdjęcia." });
+      return res.status(400).json({
+        success: false,
+        error: "Brak zdjęcia (pole 'image').",
+      });
     }
 
-    const base64 = req.file.buffer.toString("base64");
+    const base64Image = req.file.buffer.toString("base64");
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -79,38 +134,41 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
         {
           role: "user",
           content: [
-            { type: "input_text", text: systemPrompt },
-            { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` },
+            { type: "input_text", text: systemPromptAnalyze },
+            {
+              type: "input_image",
+              image_url: `data:${req.file.mimetype};base64,${base64Image}`,
+            },
           ],
         },
       ],
     });
 
-    const analysis = extractTextFromResponse(openaiResponse) || "Model nie zwrócił raportu.";
+    const analysis =
+      extractTextFromResponse(openaiResponse) ||
+      "Model nie zwrócił szczegółowego raportu.";
 
     res.json({ success: true, analysis });
-  } catch (e) {
-    console.error("Błąd /analyze:", e);
-    res.status(500).json({ success: false, error: "Błąd serwera." });
+  } catch (error) {
+    console.error("Błąd w /analyze:", error);
+    res.status(500).json({
+      success: false,
+      error: "Błąd serwera podczas analizy zdjęcia.",
+    });
   }
 });
 
-// ===============================================
-// ENDPOINT: BEFORE/AFTER
-// ===============================================
-function buildBeforeAfterPrompt() {
-  return `
-Jesteś ekspertem UPLashes AI. Porównaj zdjęcia BEFORE i AFTER.
-Pisz po polsku.
-`;
-}
-
+// ---------------------------------------
+// /api/analyze-before-after – 2 zdjęcia (base64)
+// ---------------------------------------
 app.post("/api/analyze-before-after", async (req, res) => {
   try {
-    const { beforeImage, afterImage } = req.body;
+    const { beforeImage, afterImage } = req.body || {};
 
     if (!beforeImage || !afterImage) {
-      return res.status(400).json({ error: "Brak zdjęć." });
+      return res.status(400).json({
+        error: "Both beforeImage and afterImage are required.",
+      });
     }
 
     const prompt = buildBeforeAfterPrompt();
@@ -129,116 +187,155 @@ app.post("/api/analyze-before-after", async (req, res) => {
       ],
     });
 
-    const text = extractTextFromResponse(openaiResponse) || "Brak szczegółowego raportu.";
+    const text =
+      extractTextFromResponse(openaiResponse) ||
+      "Model nie zwrócił szczegółowego raportu dla porównania BEFORE/AFTER.";
 
     res.json({ analysisText: text });
-  } catch (e) {
-    console.error("Błąd BEFORE/AFTER:", e);
-    res.status(500).json({ error: "Błąd serwera." });
+  } catch (error) {
+    console.error("Błąd w /api/analyze-before-after:", error);
+    res.status(500).json({
+      error: "Błąd serwera podczas analizy BEFORE/AFTER.",
+    });
   }
 });
 
-// ===============================================
-// ENDPOINT: /generate-map  (TEXT MAP)
-// ===============================================
+// ---------------------------------------
+// /generate-map – tekstowa mapka z linii "MAPA: 8-9-10-..."
+// (analiza na podstawie zdjęcia oka)
+// ---------------------------------------
 app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, error: "Brak zdjęcia." });
+      return res.status(400).json({
+        success: false,
+        error: "Brak zdjęcia do analizy.",
+      });
     }
 
-    const imageBase64 = req.file.buffer.toString("base64");
+    const lang = (req.body && req.body.language) || "pl";
+    const base64Image = req.file.buffer.toString("base64");
 
-    const ai = await client.responses.create({
+    const prompt =
+      lang === "en"
+        ? `You are a lash mapping expert. Based on the eye photo, propose a lash map.
+Write a short description and INCLUDE ONE LINE with lengths in mm in the format:
+MAPA: 8-9-10-11-12-11-10-9-8
+Use exactly the word "MAPA:" at the beginning of that line.`
+        : `Jesteś ekspertem od mapek rzęs. Na podstawie zdjęcia oka zaproponuj mapkę.
+Napisz krótki opis po polsku i KONIECZNIE dodaj JEDNĄ linię z długościami w mm
+w formacie:
+MAPA: 8-9-10-11-12-11-10-9-8
+Użyj dokładnie słowa "MAPA:" na początku tej linii.`;
+
+    const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
         {
-          role: "system",
-          content: "Zwróć tylko jedną linię w formacie: MAPA: 8-9-10-11-12-11-10-9-8",
-        },
-        {
           role: "user",
           content: [
-            { type: "input_text", text: "Wygeneruj mapkę na podstawie zdjęcia." },
-            { type: "input_image", image_url: `data:image/jpeg;base64,${imageBase64}` },
+            { type: "input_text", text: prompt },
+            {
+              type: "input_image",
+              image_url: `data:${req.file.mimetype};base64,${base64Image}`,
+            },
           ],
         },
       ],
     });
 
-    const raw = extractTextFromResponse(ai) || "MAPA: 8-9-10-11-12-11-10-9-8";
-    const match = raw.match(/MAPA:\s*([0-9\-]+)/i);
-    const mapLine = match ? match[1] : "";
+    const rawText =
+      extractTextFromResponse(openaiResponse) ||
+      "MAPA: 8-9-10-11-12-11-10-9-8";
 
-    res.json({ success: true, map: raw, mapLine });
-  } catch (e) {
-    console.error("Błąd /generate-map:", e);
-    res.status(500).json({ success: false, error: "Błąd generowania mapy." });
+    const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
+    const mapLine = mapLineMatch ? mapLineMatch[1].trim() : "";
+
+    res.json({
+      success: true,
+      map: rawText,
+      mapLine,
+    });
+  } catch (err) {
+    console.error("Błąd /generate-map:", err);
+    res.status(500).json({
+      success: false,
+      error: "Błąd po stronie serwera podczas generowania mapy.",
+    });
   }
 });
 
-// ===============================================
-// ENDPOINT: /generate-lash-map (STATIC SVG)
-// ===============================================
+// ---------------------------------------
+// /generate-lash-map – statyczna karta mappingowa (SVG, styl szkoleniowy B)
+// (frontend używa tego tylko do obrazka, BEZ OpenAI)
+// ---------------------------------------
 app.post("/generate-lash-map", async (req, res) => {
   try {
     const svg = `
 <?xml version="1.0" encoding="UTF-8"?>
-<svg width="600" height="260" viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg">
-  <rect width="600" height="260" fill="#f9f7f3"/>
-  <text x="300" y="40" text-anchor="middle" font-size="18" fill="#444">MAPKA RZĘS UPLashes</text>
+<svg width="620" height="260" viewBox="0 0 620 260" xmlns="http://www.w3.org/2000/svg">
+  <rect width="620" height="260" fill="#ffffff"/>
+  <text x="310" y="30" text-anchor="middle" font-family="system-ui" font-size="18" fill="#111827">
+    Mapka rzęs • UPLashes
+  </text>
+  <text x="310" y="48" text-anchor="middle" font-family="system-ui" font-size="11" fill="#6b7280">
+    Styl B – białe tło, karta mappingowa
+  </text>
 
-  <path d="M40 160 Q300 40 560 160" stroke="#c0b283" stroke-width="3" fill="none"/>
+  <path d="M 90 190 A 220 220 0 0 1 530 190" fill="none" stroke="#e5e7eb" stroke-width="1.6"/>
+  <path d="M 90 230 A 220 220 0 0 1 530 230" fill="none" stroke="#9ca3af" stroke-width="1.8"/>
 
-  <g font-size="12" fill="#444">
-    <circle cx="70" cy="150" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="70" y="154" text-anchor="middle">1</text>
-
-    <circle cx="130" cy="130" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="130" y="134" text-anchor="middle">2</text>
-
-    <circle cx="190" cy="115" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="190" y="119" text-anchor="middle">3</text>
-
-    <circle cx="250" cy="100" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="250" y="104" text-anchor="middle">4</text>
-
-    <circle cx="310" cy="95" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="310" y="99" text-anchor="middle">5</text>
-
-    <circle cx="370" cy="100" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="370" y="104" text-anchor="middle">6</text>
-
-    <circle cx="430" cy="115" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="430" y="119" text-anchor="middle">7</text>
-
-    <circle cx="490" cy="130" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="490" y="134" text-anchor="middle">8</text>
-
-    <circle cx="550" cy="150" r="14" stroke="#c0b283" stroke-width="2" fill="#fff"/>
-    <text x="550" y="154" text-anchor="middle">9</text>
+  <g font-family="system-ui" font-size="11" fill="#374151">
+    <text x="120" y="120" text-anchor="middle">7 mm</text>
+    <text x="170" y="105" text-anchor="middle">8 mm</text>
+    <text x="220" y="95" text-anchor="middle">9 mm</text>
+    <text x="270" y="90" text-anchor="middle">10 mm</text>
+    <text x="320" y="88" text-anchor="middle">11 mm</text>
+    <text x="370" y="90" text-anchor="middle">10 mm</text>
+    <text x="420" y="95" text-anchor="middle">9 mm</text>
+    <text x="470" y="105" text-anchor="middle">8 mm</text>
+    <text x="520" y="120" text-anchor="middle">7 mm</text>
   </g>
 
-  <text x="70" y="190" text-anchor="middle" font-size="11" fill="#666">Wewnętrzny kącik</text>
-  <text x="550" y="190" text-anchor="middle" font-size="11" fill="#666">Zewnętrzny kącik</text>
+  <g font-family="system-ui" font-size="11" fill="#6b7280">
+    <text x="120" y="210" text-anchor="middle">1</text>
+    <text x="170" y="210" text-anchor="middle">2</text>
+    <text x="220" y="210" text-anchor="middle">3</text>
+    <text x="270" y="210" text-anchor="middle">4</text>
+    <text x="320" y="210" text-anchor="middle">5</text>
+    <text x="370" y="210" text-anchor="middle">6</text>
+    <text x="420" y="210" text-anchor="middle">7</text>
+    <text x="470" y="210" text-anchor="middle">8</text>
+    <text x="520" y="210" text-anchor="middle">9</text>
+  </g>
+
+  <text x="90" y="248" text-anchor="start" font-family="system-ui" font-size="11" fill="#6b7280">
+    Wewnętrzny kącik
+  </text>
+  <text x="530" y="248" text-anchor="end" font-family="system-ui" font-size="11" fill="#6b7280">
+    Zewnętrzny kącik
+  </text>
 </svg>
 `;
 
-    const base64 = Buffer.from(svg).toString("base64");
+    const base64 = Buffer.from(svg, "utf8").toString("base64");
 
     res.json({
       success: true,
       imageUrl: `data:image/svg+xml;base64,${base64}`,
     });
-  } catch (e) {
-    console.error("Błąd SVG:", e);
-    res.status(500).json({ success: false, error: "Błąd SVG" });
+  } catch (err) {
+    console.error("Błąd generowania mapki (SVG):", err);
+    res.status(500).json({
+      success: false,
+      error: "Błąd generowania mapki graficznej (SVG).",
+    });
   }
 });
 
-// ===============================================
-// START SERVERA
-// ===============================================
+// ---------------------------------------
+// START SERWERA
+// ---------------------------------------
 app.listen(PORT, () => {
   console.log(`UPLashes AI backend działa na porcie ${PORT}`);
 });
