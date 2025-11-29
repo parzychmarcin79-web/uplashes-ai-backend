@@ -1,12 +1,15 @@
 {
-  "name": "uplashes-lash-map-test",
+  "name": "uplashes-ai-backend",
   "version": "1.0.0",
+  "description": "Backend UPLashes AI (analyze + lash-map)",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.18.2",
+    "openai": "^4.0.0"
   }
 }
