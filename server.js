@@ -1,9 +1,4 @@
 // UPLashes AI – backend analizy zdjęć rzęs
-// Wersja z:
-//  - /analyze            – analiza JEDNEGO zdjęcia
-//  - /api/analyze-before-after – analiza BEFORE/AFTER
-//  - /generate-map       – tekstowa mapka rzęs NA PODSTAWIE ZDJĘCIA
-//  - /generate-lash-map  – statyczna mapka graficzna (SVG)
 
 require("dotenv").config();
 
@@ -14,49 +9,35 @@ const OpenAI = require("openai");
 
 const app = express();
 
-// --- Middleware (raz) ---
+// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json());
 
-// --- Multer – plik w pamięci ---
+// Multer – trzymamy plik w pamięci
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
 });
 
-// --- Port ---
+// Port – Render podaje PORT w env
 const PORT = process.env.PORT || 10000;
 
-// --- Klient OpenAI ---
+// Klient OpenAI
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ================== ENDPOINTY PODSTAWOWE ==================
-
-app.get("/", (req, res) => {
-  res.send("UPLashes AI – backend działa ✅");
-});
-
-app.get("/ping", (req, res) => {
-  res.json({
-    ok: true,
-    message: "UPLashes AI backend działa i odpowiada na /ping",
-  });
-});
-
-// ================== POMOCNICZA FUNKCJA – TEKST Z ODPOWIEDZI ==================
-
+// ===== HELPER: wyciąganie tekstu z odpowiedzi OpenAI =====
 function extractTextFromResponse(openaiResponse) {
   try {
-    if (typeof openaiResponse.output_text === "string") {
+    if (openaiResponse && typeof openaiResponse.output_text === "string") {
       const t = openaiResponse.output_text.trim();
       if (t) return t;
     }
 
     const chunks = [];
 
-    if (Array.isArray(openaiResponse.output)) {
+    if (openaiResponse && Array.isArray(openaiResponse.output)) {
       for (const item of openaiResponse.output) {
         if (!item || !Array.isArray(item.content)) continue;
 
@@ -87,8 +68,7 @@ function extractTextFromResponse(openaiResponse) {
   return "";
 }
 
-// ================== PROMPT SYSTEMOWY (JEDNO ZDJĘCIE) ==================
-
+// ===== PROMPT – analiza jednego zdjęcia =====
 const systemPrompt = `
 Jesteś ekspertem UPLashes AI do zaawansowanej analizy stylizacji rzęs na zdjęciach.
 
@@ -102,14 +82,46 @@ KROK 1 – CZY W OGÓLE MOŻESZ OCENIĆ ZDJĘCIE
 2. Jeśli zamiast oka jest np. podłoga, ekran, cała twarz z daleka itp.:
    - Odpowiedz TYLKO:
    "Na zdjęciu nie widzę oka z rzęsami do analizy. Proszę wgrać zdjęcie jednego oka z bliska."
+   i NIC WIĘCEJ nie pisz.
 3. Jeśli wszystko jest OK – przejdź dalej.
 
 KROK 2 – CZY JEST APLIKACJA, CZY NATURALNE RZĘSY
-(... dalsza część jak wcześniej, zostawiona bez zmian ...)
+1. Ustal:
+   - Czy są założone rzęsy PRZEDŁUŻANE (aplikacja).
+   - Czy widać tylko NATURALNE rzęsy bez aplikacji.
+2. Jeśli widzisz TYLKO naturalne rzęsy:
+   - Napisz, że nie widzisz stylizacji rzęs, tylko naturalne rzęsy.
+   - Oceń gęstość i długość naturalnych rzęs, kierunek wzrostu, ewentualne ubytki.
+   - Zaproponuj 1–2 pasujące typy aplikacji (np. Klasyczne 1:1, Light Volume 2–3D, Anime, Mega Volume),
+     z krótkim uzasadnieniem.
+   - Na końcu dodaj: "Wstępna rekomendacja: …".
+   - W takim przypadku NIE rób szczegółowej analizy sklejeń, itp.
+
+KROK 3 – KLASYFIKACJA, JEŚLI JEST APLIKACJA
+Jeśli widzisz stylizację (przedłużone rzęsy): określ typu aplikacji, styl, opisz pewność.
+
+KROK 4 – ANALIZA TECHNICZNA (gęstość, kierunek, mapowanie, sklejenia, odrosty, klej).
+
+KROK 5 – Jakość wachlarzy (dla Volume/Mega).
+
+KROK 6 – Tryb Anime/Spike (jeśli dotyczy).
+
+KROK 7 – FORMAT ODPOWIEDZI (Markdown):
+
+### AI.UPLashes REPORT
+1. Ocena zdjęcia i rodzaju rzęs?
+2. Typ stylizacji (jeśli jest).
+3. Analiza techniczna.
+4. Jakość wachlarzy.
+5. Tryb Anime / Spike (jeśli dotyczy).
+6. Najważniejsze wskazówki (3–5 punktów).
+
+Na końcu dodaj:
+"Wstępna klasyfikacja aplikacji: …"
+"Rekomendacja kolejnego kroku dla stylistki: …"
 `;
 
-// ================== PROMPT BEFORE/AFTER ==================
-
+// ===== PROMPT BEFORE/AFTER =====
 function buildBeforeAfterPrompt(language = "pl") {
   return `
 Jesteś ekspertem UPLashes AI.
@@ -124,30 +136,29 @@ Struktura odpowiedzi (Markdown):
 
 ### AI.UPLashes REPORT – BEFORE / AFTER
 
-1. Krótkie podsumowanie:
-   - Jedno–dwa zdania: jaki był stan wyjściowy i co widać po stylizacji.
-
-2. BEFORE – główne obserwacje:
-   - gęstość i pokrycie,
-   - kierunek i ustawienie rzęs,
-   - ewentualne luki, sklejenia, odrosty.
-
-3. AFTER – główne obserwacje:
-   - co się poprawiło,
-   - czy linia rzęs jest bardziej równa,
-   - jakość wachlarzy (jeśli to volume/mega),
-   - separacja, klej, odrosty.
-
+1. Krótkie podsumowanie.
+2. BEFORE – główne obserwacje.
+3. AFTER – główne obserwacje.
 4. Największa zmiana na plus (2–3 punkty).
-
 5. Co jeszcze można poprawić (max 3 punkty).
 
 Pisz rzeczowo, krótko, jak mentor dla stylistki rzęs.
 `;
 }
 
-// ================== ENDPOINT: /analyze – JEDNO ZDJĘCIE ==================
+// ===== ENDPOINTY PODSTAWOWE =====
+app.get("/", (req, res) => {
+  res.send("UPLashes AI – backend działa ✅");
+});
 
+app.get("/ping", (req, res) => {
+  res.json({
+    ok: true,
+    message: "UPLashes AI backend działa i odpowiada na /ping",
+  });
+});
+
+// ===== /analyze – jedno zdjęcie =====
 app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -175,23 +186,14 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
       ],
     });
 
-    console.log(
-      "Odpowiedź z OpenAI (surowa):",
-      JSON.stringify(openaiResponse, null, 2)
-    );
-
     let analysis = extractTextFromResponse(openaiResponse);
     if (!analysis) {
       analysis = "Model nie zwrócił szczegółowego raportu.";
     }
 
-    return res.json({
-      success: true,
-      analysis,
-    });
+    return res.json({ success: true, analysis });
   } catch (error) {
     console.error("Błąd w /analyze:", error);
-
     return res.status(500).json({
       success: false,
       error: "Błąd serwera podczas analizy zdjęcia.",
@@ -200,8 +202,7 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// ================== ENDPOINT: BEFORE / AFTER ==================
-
+// ===== /api/analyze-before-after =====
 app.post("/api/analyze-before-after", async (req, res) => {
   try {
     const { beforeImage, afterImage, language = "pl" } = req.body || {};
@@ -212,7 +213,9 @@ app.post("/api/analyze-before-after", async (req, res) => {
       });
     }
 
-    const prompt = buildBeforeAfterPrompt(language === "en" ? "en" : "pl");
+    const prompt = buildBeforeAfterPrompt(
+      language === "en" ? "en" : "pl"
+    );
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -228,11 +231,6 @@ app.post("/api/analyze-before-after", async (req, res) => {
       ],
     });
 
-    console.log(
-      "Odpowiedź BEFORE/AFTER z OpenAI:",
-      JSON.stringify(openaiResponse, null, 2)
-    );
-
     let analysisText = extractTextFromResponse(openaiResponse);
 
     if (!analysisText) {
@@ -245,7 +243,6 @@ app.post("/api/analyze-before-after", async (req, res) => {
     return res.json({ analysisText });
   } catch (error) {
     console.error("Błąd w /api/analyze-before-after:", error);
-
     return res.status(500).json({
       error: "Błąd serwera podczas analizy BEFORE/AFTER.",
       details: error.message || String(error),
@@ -253,29 +250,25 @@ app.post("/api/analyze-before-after", async (req, res) => {
   }
 });
 
-// ===================== ENDPOINT: /generate-map =====================
-// Tekstowa mapka rzęs NA PODSTAWIE ZDJĘCIA
-
+// ===== /generate-map – tekstowa mapka z długościami =====
 app.post("/generate-map", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) {
+    const file = req.file;
+    const lang = req.body.language || "pl";
+
+    if (!file) {
       return res.status(400).json({
         success: false,
         error: "Brak zdjęcia do analizy.",
       });
     }
 
-    const base64Image = req.file.buffer.toString("base64");
+    const base64Image = file.buffer.toString("base64");
 
-    const prompt = `
-Jesteś ekspertem stylizacji rzęs.
-Na podstawie zdjęcia oka wygeneruj TYLKO jedną linię w formacie:
-
-MAPA: 8-9-10-11-12-11-10-9-8
-
-– dokładnie tak, bez dodatkowych zdań, komentarzy ani wyjaśnień.
-Jeśli nie jesteś pewien długości, wybierz najbardziej realistyczny, klasyczny schemat.
-`;
+    const mapPrompt =
+      lang === "en"
+        ? "Return only one line with lash map, e.g. MAP: 8-9-10-11-12-11-10-9-8. Do not add any extra text."
+        : "Zwróć tylko JEDNĄ linię z mapką rzęs, np. MAPA: 8-9-10-11-12-11-10-9-8. Bez dodatkowego tekstu.";
 
     const openaiResponse = await client.responses.create({
       model: "gpt-4o-mini",
@@ -283,10 +276,10 @@ Jeśli nie jesteś pewien długości, wybierz najbardziej realistyczny, klasyczn
         {
           role: "user",
           content: [
-            { type: "input_text", text: prompt },
+            { type: "input_text", text: mapPrompt },
             {
               type: "input_image",
-              image_url: `data:${req.file.mimetype};base64,${base64Image}`,
+              image_url: `data:${file.mimetype};base64,${base64Image}`,
             },
           ],
         },
@@ -297,14 +290,13 @@ Jeśli nie jesteś pewien długości, wybierz najbardziej realistyczny, klasyczn
       extractTextFromResponse(openaiResponse) ||
       "MAPA: 8-9-10-11-12-11-10-9-8";
 
-    // wyciągamy samą część z długościami
     const mapLineMatch = rawText.match(/MAPA:\s*([0-9\s\-]+)/i);
     const mapLine = mapLineMatch ? mapLineMatch[1].trim() : "";
 
     return res.json({
       success: true,
       map: rawText,
-      mapLine: mapLine,
+      mapLine,
     });
   } catch (err) {
     console.error("Błąd /generate-map:", err);
@@ -315,9 +307,7 @@ Jeśli nie jesteś pewien długości, wybierz najbardziej realistyczny, klasyczn
   }
 });
 
-// ===================== ENDPOINT: /generate-lash-map =====================
-// Statyczna mapka graficzna (SVG – białe tło, styl szkoleniowy)
-
+// ===== /generate-lash-map – statyczna grafika (Styl B – białe tło) =====
 app.post("/generate-lash-map", async (req, res) => {
   try {
     const svg = `
@@ -375,7 +365,10 @@ app.post("/generate-lash-map", async (req, res) => {
     `;
 
     const base64 = Buffer.from(svg, "utf8").toString("base64");
-    res.json({ success: true, imageUrl: `data:image/svg+xml;base64,${base64}` });
+    res.json({
+      success: true,
+      imageUrl: `data:image/svg+xml;base64,${base64}`,
+    });
   } catch (err) {
     console.error("Błąd generowania mapki (SVG):", err);
     res.status(500).json({
@@ -385,8 +378,7 @@ app.post("/generate-lash-map", async (req, res) => {
   }
 });
 
-// ================== START SERWERA ==================
-
+// ===== START SERWERA =====
 app.listen(PORT, () => {
   console.log(`Backend UPLashes AI działa na porcie ${PORT}`);
 });
