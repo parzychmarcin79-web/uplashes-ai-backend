@@ -12,6 +12,10 @@ app.use(express.json({ limit: "10mb" })); // JSON + duże zdjęcia base64
 // PORT – Render ustawia PORT w env
 const PORT = process.env.PORT || 10000;
 
+// Wszystkie skręty UPLashes używane w mapie
+// Jak chcesz zmienić – edytuj tylko tę tablicę:
+const UPLASHES_CURLS = ["C", "CC", "D", "DD", "L", "M"];
+
 // Sprawdzenie klucza OpenAI
 function ensureApiKey() {
   if (!process.env.OPENAI_API_KEY) {
@@ -51,6 +55,92 @@ async function callOpenAI(messages, temperature = 0.4) {
   return content.trim();
 }
 
+// Pomocniczo – oczyszczenie stringa z JSON (usuwa ```json ... ```)
+function cleanJsonString(str) {
+  if (!str) return str;
+  return str
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+// Zamiana struktury inner/transition/central/outer -> tablica zones[]
+function mapToZones(mapObj) {
+  if (!mapObj || typeof mapObj !== "object") return null;
+
+  const inner = mapObj.inner || {};
+  const transition = mapObj.transition || {};
+  const central = mapObj.central || {};
+  const outer = mapObj.outer || {};
+
+  const zones = [
+    {
+      zone: inner.zone || "0–20%",
+      lengths: inner.lengths || "7–8",
+      curlMain: inner.curl || "CC",
+      curlsAll: UPLASHES_CURLS,
+      note: inner.note || "",
+    },
+    {
+      zone: transition.zone || "20–40%",
+      lengths: transition.lengths || "9–10",
+      curlMain: transition.curl || "CC",
+      curlsAll: UPLASHES_CURLS,
+      note: transition.note || "",
+    },
+    {
+      zone: central.zone || "40–70%",
+      lengths: central.lengths || "10–11–12",
+      curlMain: central.curl || "CC",
+      curlsAll: UPLASHES_CURLS,
+      note: central.note || "",
+    },
+    {
+      zone: outer.zone || "70–100%",
+      lengths: outer.lengths || "11–12–13",
+      curlMain: outer.curl || "C",
+      curlsAll: UPLASHES_CURLS,
+      note: outer.note || "",
+    },
+  ];
+
+  return zones;
+}
+
+// Domyślna mapa – używana awaryjnie, jeśli JSON z AI nie przejdzie
+function getFallbackZones() {
+  return [
+    {
+      zone: "0–20%",
+      lengths: "8–9",
+      curlMain: "CC",
+      curlsAll: UPLASHES_CURLS,
+      note: "delikatny początek, miękkie otwarcie",
+    },
+    {
+      zone: "20–40%",
+      lengths: "9–10",
+      curlMain: "CC",
+      curlsAll: UPLASHES_CURLS,
+      note: "łagodne budowanie efektu",
+    },
+    {
+      zone: "40–70%",
+      lengths: "10–11–12",
+      curlMain: "D",
+      curlsAll: UPLASHES_CURLS,
+      note: "główne otwarcie oka",
+    },
+    {
+      zone: "70–100%",
+      lengths: "11–12–13",
+      curlMain: "C",
+      curlsAll: UPLASHES_CURLS,
+      note: "delikatne wyciągnięcie bez obciążania rzęs",
+    },
+  ];
+}
+
 // ─────────────────────────────────────────────
 //  ROUTE 1 – root / (health check Render)
 // ─────────────────────────────────────────────
@@ -69,7 +159,7 @@ app.get("/status", (req, res) => {
   res.status(200).json({
     status: "live",
     module: "analyze+lash-map",
-    version: "1.1.0",
+    version: "1.2.0",
     timestamp: new Date().toISOString(),
   });
 });
@@ -138,15 +228,6 @@ app.post("/analyze", async (req, res) => {
   }
 });
 
-// Pomocniczo – oczyszczenie stringa z JSON (usuwa ```json ... ```)
-function cleanJsonString(str) {
-  if (!str) return str;
-  return str
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
-    .trim();
-}
-
 // ─────────────────────────────────────────────
 //  ROUTE 4 – /lash-map – mapa rzęs z AI
 // ─────────────────────────────────────────────
@@ -166,6 +247,7 @@ app.post("/lash-map", async (req, res) => {
     const systemPrompt =
       lang === "en"
         ? `You are a lash styling expert. Based on the uploaded eye/lash photo, you propose a detailed lash map for one eye.
+
 Return ONLY valid JSON in this exact format (no extra text):
 
 {
@@ -201,7 +283,8 @@ Rules:
 - Use lengths that make sense for the eye in the photo.
 - Keep notes short (max 1 sentence each).
 - Write all text in English.`
-        : `Jesteś ekspertem od stylizacji rzęz. Na podstawie przesłanego zdjęcia oka/rzęs proponujesz szczegółową mapę rzęs dla jednego oka.
+        : `Jesteś ekspertem od stylizacji rzęs. Na podstawie przesłanego zdjęcia oka/rzęs proponujesz szczegółową mapę rzęs dla jednego oka.
+
 Zwróć TYLKO poprawny JSON w dokładnie takim formacie (bez dodatkowego tekstu):
 
 {
@@ -269,19 +352,28 @@ Zasady:
       console.error("Nie udało się sparsować JSON z /lash-map:", e, cleaned);
     }
 
+    // Jeśli udało się sparsować i jest map
     if (parsed && parsed.map) {
+      const zones = mapToZones(parsed.map) || getFallbackZones();
+
       return res.status(200).json({
         status: "success",
-        map: parsed.map,
+        map: {
+          zones,
+        },
         raw: cleaned,
       });
     }
 
-    // awaryjnie – jak JSON nie wejdzie
+    // Awaryjnie – jeśli JSON z AI jest rozwalony, ale chcemy, żeby front miał mapę
+    const fallbackZones = getFallbackZones();
+
     return res.status(200).json({
       status: "success",
-      map: null,
-      raw: cleaned,
+      map: {
+        zones: fallbackZones,
+      },
+      raw: cleaned || "",
     });
   } catch (error) {
     console.error("Błąd /lash-map:", error);
