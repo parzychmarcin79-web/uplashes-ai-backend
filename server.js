@@ -36,3 +36,26 @@ app.post("/lash-map", (req, res) => {
 app.listen(PORT, () => {
   console.log(`UPLashes AI backend działa na porcie ${PORT}`);
 });
+const API_URL = "https://uplashes-ai-backend.onrender.com/lash-map";
+
+async function generateLashMap(formData) {
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      eyeType: formData.eyeType || "standard",
+      style: formData.style || "natural-open-eye",
+      curl: formData.curl || "C",
+      thickness: formData.thickness || "0.10",
+      note: formData.note || "",
+      customSections: formData.customSections || null,
+    }),
+  });
+
+  const data = await response.json();
+  console.log("Mapa z backendu:", data);
+  // tutaj rysujesz mapę na ekranie z data.sections
+}
+
