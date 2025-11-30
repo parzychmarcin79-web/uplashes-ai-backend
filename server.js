@@ -1,15 +1,18 @@
+// server.js – UPLashes – analiza stylizacji rzęs (bez modułu mapy)
+
 const express = require("express");
 const cors = require("cors");
 
 const app = express();
 
+// Podstawowe middleware
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "10mb" })); // pozwala na duże base64
 
-// PORT z Render
+// PORT z Render / lokalnie domyślnie 10000
 const PORT = process.env.PORT || 10000;
 
-// Sprawdzenie klucza
+// Sprawdzenie klucza OpenAI
 function ensureApiKey() {
   if (!process.env.OPENAI_API_KEY) {
     console.error("Brak OPENAI_API_KEY w zmiennych środowiskowych!");
@@ -18,8 +21,8 @@ function ensureApiKey() {
   return true;
 }
 
-// Pomocnicza funkcja do wywołania OpenAI
-async function callOpenAI(messages, temperature = 0.45) {
+// Pomocnicza funkcja do wywołania OpenAI Chat Completions
+async function callOpenAI(messages, temperature = 0.5) {
   if (!ensureApiKey()) {
     throw new Error("Brak klucza OPENAI_API_KEY");
   }
@@ -48,31 +51,32 @@ async function callOpenAI(messages, temperature = 0.45) {
   return content.trim();
 }
 
-/* ─────────────────────────────
-   1. Root + status
-───────────────────────────── */
-
+// ─────────────────────────────────────────────
+//  ROUTE 1 – root / (health check Render)
+// ─────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "live",
-    module: "uplashes-analyze",
-    message: "UPLashes – backend analizy stylizacji rzęs działa.",
+    module: "analyze-only",
+    message: "UPLashes – backend analizy działa poprawnie.",
   });
 });
 
+// ─────────────────────────────────────────────
+//  ROUTE 2 – /status (ping z frontu)
+// ─────────────────────────────────────────────
 app.get("/status", (req, res) => {
   res.status(200).json({
     status: "live",
-    module: "uplashes-analyze",
-    version: "1.2.0",
+    module: "analyze-only",
+    version: "2.0.0",
     timestamp: new Date().toISOString(),
   });
 });
 
-/* ─────────────────────────────
-   2. /analyze – główna analiza zdjęcia
-───────────────────────────── */
-
+// ─────────────────────────────────────────────
+//  ROUTE 3 – /analyze – analiza zdjęcia rzęs
+// ─────────────────────────────────────────────
 app.post("/analyze", async (req, res) => {
   try {
     const { imageBase64, language } = req.body || {};
@@ -86,100 +90,68 @@ app.post("/analyze", async (req, res) => {
 
     const lang = language === "en" ? "en" : "pl";
 
-    // PROMPT PL / EN – styl PRO instruktorki UPLashes
+    // System prompt – wersja PL / EN
     const systemPrompt =
       lang === "en"
         ? `
-You are an experienced lash trainer and salon owner specialising in high-quality work (brand style: UPLashes).
-You analyse ONE uploaded eye / lash photo and write a professional report **for another lash stylist** (not for the client).
+You are an advanced lash styling educator. 
+You analyse high-quality photos of eyelash extensions and write a professional report for a lash tech.
 
-The report must be:
-- precise, technical, but still easy to read,
-- written in clear, modern language (no generic AI phrases, no apologies),
-- different in wording for each photo – DO NOT reuse the exact same sentences or generic intros.
+ALWAYS respond in English.
+Your task is to create a structured, detailed but concise analysis of THIS SPECIFIC PHOTO – do not write generic tips.
 
-STRUCTURE (keep this structure in every report):
+Use EXACTLY this structure and headings:
 
-1. Short overall assessment – 1–2 sentences.
-   - What type of effect do you see (natural / stronger / very intense)?
-   - Does the work generally look clean and safe?
+Strong points of the set:
+- ...
 
-2. Strengths of the set (bullet points).
-   - 3–5 bullet points.
-   - Each bullet: a short title + quick explanation.
-   - Focus on: direction, cleanliness, styling idea, mapping logic, suitability to eye shape.
+Things to improve:
+- ...
 
-3. Elements to improve (bullet points – very concrete).
-   - 3–6 bullet points.
-   - Each bullet must answer: WHAT is off + WHY it matters + HOW to fix it next time.
-   - Talk about: attachment area, glue amount, direction inconsistency, lash layers, inner/outer corners, mapping balance, weight vs natural lashes, isolation.
+Technical recommendations:
+- ...
 
-4. Technical recommendations.
-   - 3–6 short points with practical tips:
-     - example lengths for inner / central / outer zone,
-     - suggestions about curl (C/CC/D etc.) and thickness,
-     - what to change in mapping or weight for better balance and retention,
-     - tips about working cleaner around the lash line and using less/more adhesive if needed.
+Quality & safety checks:
+- ...
 
-5. Educational tip to close.
-   - 1 sentence with a small coaching tip for the stylist (e.g. how to practise, what to observe more carefully next time).
-   - Motivating, not judging.
-
-Additional rules:
-- Write everything in **English**.
-- Do NOT mention “AI”, “as an AI model”, etc.
-- Do NOT invent brand/product promotion – focus purely on technique.
-- If something is not perfectly visible on the photo, be careful and use words like "probably / seems / most likely".
-`
+Guidelines:
+- Base your comments on what you SEE in the photo: density, direction, mapping, attachment, cleanliness, symmetry, lash health.
+- Avoid repeating the same sentences you would use for every client – write as if this is a unique client.
+- Use short bullet points (starting with "- ") under each section.
+- Total length: roughly 150–220 lines of text, not more than ~2200 characters.
+        `.trim()
         : `
-Jesteś doświadczoną instruktorką stylizacji rzęs i właścicielką marki w stylu UPLashes.
-Analizujesz JEDNO zdjęcie oka / rzęs i przygotowujesz profesjonalny raport
-**dla innej stylistki rzęs** (nie dla klientki).
+Jesteś zaawansowanym edukatorem stylizacji rzęs.
+Analizujesz zdjęcia aplikacji rzęs i tworzysz profesjonalny raport dla stylistki.
 
-Raport ma być:
-- konkretny, techniczny, ale czytelny,
-- napisany nowoczesnym językiem (bez suchych, sztucznych zwrotów),
-- za każdym razem nieco inaczej sformułowany – NIE powtarzaj w kółko tych samych zdań.
+ZAWSZE odpowiadasz po polsku.
+Twoim zadaniem jest przygotować uporządkowaną, konkretną analizę TEGO KONKRETNEGO ZDJĘCIA – unikaj ogólnych porad, pisz o tym, co widzisz.
 
-STRUKTURA (zachowuj ją w każdym raporcie):
+Użyj DOKŁADNIE takiej struktury i nagłówków:
 
-1. Krótka ocena ogólna – 1–2 zdania.
-   - Jaki efekt widzisz (naturalny / wyraźniejszy / bardzo mocny)?
-   - Czy praca ogólnie wygląda czysto i bezpiecznie dla rzęs naturalnych?
+Mocne strony stylizacji:
+- ...
 
-2. Mocne strony stylizacji (wypunktowanie).
-   - 3–5 punktów.
-   - Każdy punkt: krótki nagłówek + krótkie wyjaśnienie.
-   - Skup się na: kierunku, czystości pracy, pomyśle na stylizację, logice mapy, dopasowaniu do kształtu oka.
+Elementy do poprawy:
+- ...
 
-3. Elementy do poprawy (wypunktowanie – bardzo konkretne).
-   - 3–6 punktów.
-   - Każdy punkt ma odpowiadać na: CO jest do poprawy + DLACZEGO ma znaczenie + JAK to poprawić przy kolejnej aplikacji.
-   - Porusz m.in.: miejsce przyklejenia, ilość kleju, kierunki, praca na warstwach, wewnętrzne i zewnętrzne kąciki, balans długości i gęstości, bezpieczeństwo dla rzęs naturalnych, izolację.
+Rekomendacje techniczne:
+- ...
 
-4. Rekomendacje techniczne.
-   - 3–6 krótkich, praktycznych wskazówek:
-     - przykładowe długości dla stref: 0–20%, 20–40%, 40–70%, 70–100%,
-     - sugestie doboru skrętu (C / CC / D itd.) i grubości,
-     - co zmienić w mapie lub objętości, żeby uzyskać lepszy balans oka i lepszą retencję,
-     - jak pracować czyściej przy linii rzęs i jak kontrolować ilość kleju.
+Kontrola jakości i bezpieczeństwo:
+- ...
 
-5. Tip edukacyjny na koniec.
-   - 1 zdanie – mały coaching dla stylistki (np. jak ćwiczyć, na co zwracać uwagę).
-   - Motywująco, bez oceniania.
-
-Dodatkowe zasady:
-- Pisz wszystko w **języku polskim**.
-- Nie wspominaj, że jesteś modelem AI, nie przepraszaj.
-- Nie wymyślaj konkretnej marki/produktów – skup się na TECHNICE.
-- Jeśli coś na zdjęciu nie jest idealnie widoczne, używaj sformułowań typu
-  „prawdopodobnie / wydaje się / najpewniej”.
-`;
+Wytyczne:
+- Odnoś się do tego, co WIDZISZ na zdjęciu: gęstość, kierunek, mapowanie, łączenie rzęs, czystość pracy, symetria, kondycja rzęs naturalnych.
+- Unikaj powtarzania tych samych zdań dla każdej pracy – pisz tak, jakby to była jedna konkretna klientka.
+- Używaj krótkich punktów wypunktowanych (zaczynających się od "- ") w każdej sekcji.
+- Całość ma być rzeczowa, biznesowa, bez przesadnego „słodzenia”, maks. ok. 2200 znaków.
+        `.trim();
 
     const userText =
       lang === "en"
-        ? "Here is the lash set photo. Analyse the work in detail and generate a structured, technical report for a lash stylist."
-        : "To jest zdjęcie stylizacji rzęs. Przeanalizuj pracę szczegółowo i wygeneruj uporządkowany, techniczny raport dla stylistki.";
+        ? "Below is the client lash set photo. Analyse it and write the full report in the required structure."
+        : "Poniżej masz zdjęcie stylizacji rzęs klientki. Przeanalizuj je i napisz pełny raport w wymaganej strukturze.";
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -197,7 +169,7 @@ Dodatkowe zasady:
       },
     ];
 
-    const text = await callOpenAI(messages, 0.45);
+    const text = await callOpenAI(messages, 0.5);
 
     if (!text) {
       return res.status(500).json({
@@ -219,10 +191,9 @@ Dodatkowe zasady:
   }
 });
 
-/* ─────────────────────────────
-   3. Start serwera
-───────────────────────────── */
-
+// ─────────────────────────────────────────────
+//  START SERWERA
+// ─────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`UPLashes – backend analizy działa na porcie ${PORT}`);
+  console.log(`UPLashes backend analizy działa na porcie ${PORT}`);
 });
