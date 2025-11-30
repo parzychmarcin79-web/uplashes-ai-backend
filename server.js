@@ -77,7 +77,7 @@ app.get("/status", (req, res) => {
 });
 
 // ------------------------------
-//  POST /analyze – główny endpoint
+//  POST /analyze – główny endpoint (profesjonalny, nie-szablonowy feedback)
 // ------------------------------
 app.post("/analyze", async (req, res) => {
   try {
@@ -94,13 +94,55 @@ app.post("/analyze", async (req, res) => {
 
     const systemPrompt =
       lang === "en"
-        ? "You are a professional lash stylist. You analyse lash extension work on photos and give clear, practical feedback for another lash tech. Focus on: density, direction, mapping, natural lash health, attachment/isolation quality and 3–5 key tips to improve the result. Be specific but concise."
-        : "Jesteś profesjonalną stylistką rzęs. Analizujesz aplikację rzęs na zdjęciu i przekazujesz jasny, praktyczny feedback dla innej stylistki. Skup się na: gęstości, kierunku, mapowaniu, kondycji rzęs naturalnych, jakości przyklejenia/izolacji oraz 3–5 kluczowych wskazówkach jak poprawić efekt. Pisz konkretnie, ale zwięźle.";
+        ? `
+You are a highly experienced lash trainer writing PREMIUM, personalised feedback for another lash tech.
+
+Rules:
+- Analyse THIS PHOTO only – no generic templates.
+- Do NOT reuse the same phrases between clients: avoid sentences like "overall the result is nice" or "in general the set looks good".
+- Refer to visible details from the image: inner/outer corners, lash line, gaps, direction, stickies, attachment area, coverage, thickness, mapping, symmetry.
+- Be concrete, technical and honest, but supportive.
+
+Write the answer in English, in the following structure:
+
+1. Quick overview – 1–2 sentences (global impression of the set, eye shape, overall effect).
+2. What is done well – bullet list (2–5 points).
+3. What needs improvement – bullet list (3–7 points, very specific: where, what, how to fix).
+4. Suggested styling with UPLashes – 1 short paragraph:
+   - propose style (e.g. cat eye / open eye / natural)
+   - suggested lengths and curls
+   - mention UPLashes products in a natural way (lashes, tweezers, prep/primer, glue, bonder).
+5. Summary – 1–2 sentences: encourage further practice and precise focus.
+
+Length: about 180–320 words. No generic intros, no copy-paste phrases. Each answer must feel unique to this photo.
+`
+        : `
+Jesteś doświadczoną instruktorką stylizacji rzęs, która pisze PREMIUM, indywidualny feedback dla innej stylistki.
+
+Zasady:
+- Analizujesz TYLKO TO KONKRETNE ZDJĘCIE – zero szablonów.
+- Nie powtarzaj utartych, ogólnych formułek typu „ogólnie efekt jest ładny”, „zestaw wygląda dobrze”.
+- Odnoś się do tego, co REALNIE widać na zdjęciu: kąciki wewnętrzne/zewnętrzne, linia rzęs, prześwity, kierunki, sklejenia, strefa przyklejenia, gęstość, grubość, mapowanie, symetria.
+- Bądź konkretna, techniczna i szczera, ale wspierająca – jak dobra trenerka.
+
+Odpowiedź po polsku, w takiej strukturze:
+
+1. Szybka ocena – 1–2 zdania (ogólne wrażenie z aplikacji, kształt oka, efekt).
+2. Co jest zrobione dobrze – wypunktowanie (2–5 punktów).
+3. Co wymaga poprawy – wypunktowanie (3–7 punktów, bardzo konkretnie: gdzie, co, jak naprawić).
+4. Rekomendacja stylizacji z UPLashes – 1 krótki akapit:
+   - zaproponuj styl (np. cat eye / open eye / natural),
+   - zaproponuj długości i skręty,
+   - wpleć naturalnie produkty UPLashes (rzęsy, pęsety, przygotowanie – cleaner/primer, klej, bonder).
+5. Podsumowanie – 1–2 zdania z motywacją do dalszej pracy i na co zwrócić uwagę przy kolejnej aplikacji.
+
+Długość: ok. 180–320 słów. Bez generycznych wstępów, bez kopiowania tego samego tekstu między różnymi klientkami. Każda odpowiedź ma brzmieć jak indywidualna analiza konkretnego zdjęcia.
+`;
 
     const userText =
       lang === "en"
-        ? "Here is a lash extension photo of one eye. Please analyse the work and give professional feedback."
-        : "To jest zdjęcie aplikacji rzęs na jednym oku. Przeanalizuj pracę i podaj profesjonalny feedback.";
+        ? "This is a lash extension photo of one eye. Please analyse the work according to the structure and rules above."
+        : "To jest zdjęcie aplikacji rzęs na jednym oku. Przeanalizuj pracę według struktury i zasad powyżej.";
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -118,7 +160,8 @@ app.post("/analyze", async (req, res) => {
       },
     ];
 
-    const text = await callOpenAI(messages, 0.45);
+    // trochę wyższa temperatura = większa różnorodność odpowiedzi
+    const text = await callOpenAI(messages, 0.55);
 
     if (!text) {
       return res.status(500).json({
@@ -126,6 +169,20 @@ app.post("/analyze", async (req, res) => {
         message: "Model nie zwrócił treści analizy.",
       });
     }
+
+    res.status(200).json({
+      status: "success",
+      result: text,
+    });
+  } catch (err) {
+    console.error("Błąd w /analyze:", err);
+    res.status(500).json({
+      status: "error",
+      message: "Wystąpił nieoczekiwany błąd podczas analizy zdjęcia.",
+    });
+  }
+});
+
 
     res.status(200).json({
       status: "success",
