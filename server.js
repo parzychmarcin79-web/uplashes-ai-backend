@@ -1,20 +1,18 @@
-// server.js – UPLashes – analiza stylizacji rzęs (prosta analiza zdjęcia)
+// server.js – UPLashes – analiza stylizacji rzęs (PRO wersja raportu)
 
 const express = require("express");
 const cors = require("cors");
 
-// W Node 18+ fetch jest globalny. Jeśli kiedyś będzie błąd "fetch is not defined",
-// można doinstalować `node-fetch` i odkomentować linijkę poniżej.
-// const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
 const app = express();
 
+// Podstawowe middleware
 app.use(cors());
-app.use(express.json({ limit: "10mb" })); // JSON + większe zdjęcia base64
+app.use(express.json({ limit: "10mb" })); // JSON + duże zdjęcia base64
 
+// Port – przy deployu na Render PORT jest brany z env
 const PORT = process.env.PORT || 10000;
 
-// --- sprawdzenie klucza OpenAI ---
+// Sprawdzenie klucza OpenAI
 function ensureApiKey() {
   if (!process.env.OPENAI_API_KEY) {
     console.error("Brak OPENAI_API_KEY w zmiennych środowiskowych!");
@@ -23,8 +21,8 @@ function ensureApiKey() {
   return true;
 }
 
-// --- pomocnicza funkcja: wywołanie OpenAI Chat Completions z obrazem ---
-async function callOpenAI(messages, temperature = 0.4) {
+// Pomocnicza funkcja do wywołania OpenAI Chat Completions
+async function callOpenAI(messages, temperature = 0.5) {
   if (!ensureApiKey()) {
     throw new Error("Brak klucza OPENAI_API_KEY");
   }
@@ -43,7 +41,7 @@ async function callOpenAI(messages, temperature = 0.4) {
   });
 
   if (!response.ok) {
-    const errText = await response.text();
+    const errText = await response.text().catch(() => "");
     console.error("Błąd OpenAI:", response.status, errText);
     throw new Error("OpenAI zwróciło błąd");
   }
@@ -53,32 +51,32 @@ async function callOpenAI(messages, temperature = 0.4) {
   return content.trim();
 }
 
-// ------------------------------
-//  GET /       – health check
-// ------------------------------
+// ─────────────────────────────────────────────
+//  ROUTE 1 – root / (health check dla Render)
+// ─────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "live",
-    module: "uplashes-analyze-only",
-    message: "UPLashes – analiza stylizacji rzęs – backend działa.",
+    module: "uplashes-analyze",
+    message: "UPLashes – backend analizy działa poprawnie.",
   });
 });
 
-// ------------------------------
-//  GET /status – ping dla frontu
-// ------------------------------
+// ─────────────────────────────────────────────
+//  ROUTE 2 – /status (ping z frontu)
+// ─────────────────────────────────────────────
 app.get("/status", (req, res) => {
   res.status(200).json({
     status: "live",
-    module: "uplashes-analyze-only",
-    version: "1.0.0",
+    module: "uplashes-analyze",
+    version: "2.0.0",
     timestamp: new Date().toISOString(),
   });
 });
 
-// ------------------------------
-//  POST /analyze – główny endpoint (profesjonalny, nie-szablonowy feedback)
-// ------------------------------
+// ─────────────────────────────────────────────
+//  ROUTE 3 – /analyze – analiza zdjęcia rzęs
+// ─────────────────────────────────────────────
 app.post("/analyze", async (req, res) => {
   try {
     const { imageBase64, language } = req.body || {};
@@ -86,7 +84,7 @@ app.post("/analyze", async (req, res) => {
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({
         status: "error",
-        message: "Brakuje pola imageBase64 w body żądania.",
+        message: "Brakuje danych zdjęcia (imageBase64).",
       });
     }
 
@@ -95,54 +93,73 @@ app.post("/analyze", async (req, res) => {
     const systemPrompt =
       lang === "en"
         ? `
-You are a highly experienced lash trainer writing PREMIUM, personalised feedback for another lash tech.
+You are a highly experienced lash stylist and trainer working for the UPLashes brand.
+Your task is to analyse ONE uploaded photo of an eye/lash set and write a **clear, professional report** for a lash tech.
 
-Rules:
-- Analyse THIS PHOTO only – no generic templates.
-- Do NOT reuse the same phrases between clients: avoid sentences like "overall the result is nice" or "in general the set looks good".
-- Refer to visible details from the image: inner/outer corners, lash line, gaps, direction, stickies, attachment area, coverage, thickness, mapping, symmetry.
-- Be concrete, technical and honest, but supportive.
+Requirements:
+- Always respond **in English**.
+- Treat every photo as unique – avoid reusing identical sentences from one analysis to another.
+- Be specific, practical and kind – this is feedback, not criticism.
+- Do NOT invent what is not visible in the picture.
 
-Write the answer in English, in the following structure:
+Structure your answer in sections with short paragraphs and bullet points where helpful:
 
-1. Quick overview – 1–2 sentences (global impression of the set, eye shape, overall effect).
-2. What is done well – bullet list (2–5 points).
-3. What needs improvement – bullet list (3–7 points, very specific: where, what, how to fix).
-4. Suggested styling with UPLashes – 1 short paragraph:
-   - propose style (e.g. cat eye / open eye / natural)
-   - suggested lengths and curls
-   - mention UPLashes products in a natural way (lashes, tweezers, prep/primer, glue, bonder).
-5. Summary – 1–2 sentences: encourage further practice and precise focus.
+1. Density & Coverage  
+   - Describe overall density, evenness of coverage, visible gaps.
 
-Length: about 180–320 words. No generic intros, no copy-paste phrases. Each answer must feel unique to this photo.
-`
+2. Direction & Mapping  
+   - Comment on direction, symmetry, and how the lash map looks on the eye shape.
+
+3. Application Quality  
+   - Isolating, attachment area, bases, wrapping, stickies, glue control.
+
+4. Natural Lashes Condition  
+   - Visible health of naturals, tension, any signs of overload or stress.
+
+5. Retention & Safety Tips  
+   - 3–6 practical tips to improve durability and safety (humidity, glue placement, layer work, weight choice etc.).
+
+6. Styling Suggestions  
+   - Suggest what could be adjusted next time (e.g. lengths, curls, thickness, zones) to flatter this eye shape.
+
+Keep the whole report around 250–450 words, but make it feel customised to THIS photo.`
         : `
-Jesteś doświadczoną instruktorką stylizacji rzęs, która pisze PREMIUM, indywidualny feedback dla innej stylistki.
+Jesteś doświadczoną instruktorką stylizacji rzęs pracującą dla marki UPLashes.
+Twoim zadaniem jest przeanalizować JEDNO przesłane zdjęcie oka / stylizacji rzęs
+i przygotować **czytelny, profesjonalny raport** dla stylistki.
 
-Zasady:
-- Analizujesz TYLKO TO KONKRETNE ZDJĘCIE – zero szablonów.
-- Nie powtarzaj utartych, ogólnych formułek typu „ogólnie efekt jest ładny”, „zestaw wygląda dobrze”.
-- Odnoś się do tego, co REALNIE widać na zdjęciu: kąciki wewnętrzne/zewnętrzne, linia rzęs, prześwity, kierunki, sklejenia, strefa przyklejenia, gęstość, grubość, mapowanie, symetria.
-- Bądź konkretna, techniczna i szczera, ale wspierająca – jak dobra trenerka.
+Wymagania:
+- Zawsze odpowiadaj **po polsku**.
+- Traktuj każde zdjęcie jako unikalne – unikaj powtarzania identycznych zdań między analizami.
+- Bądź konkretna, praktyczna i wspierająca – to ma być feedback, a nie hejt.
+- Nie wymyślaj rzeczy, których nie widać na zdjęciu.
 
-Odpowiedź po polsku, w takiej strukturze:
+Ułóż odpowiedź w sekcje, z krótkimi akapitami, a tam gdzie pasuje – w punktach:
 
-1. Szybka ocena – 1–2 zdania (ogólne wrażenie z aplikacji, kształt oka, efekt).
-2. Co jest zrobione dobrze – wypunktowanie (2–5 punktów).
-3. Co wymaga poprawy – wypunktowanie (3–7 punktów, bardzo konkretnie: gdzie, co, jak naprawić).
-4. Rekomendacja stylizacji z UPLashes – 1 krótki akapit:
-   - zaproponuj styl (np. cat eye / open eye / natural),
-   - zaproponuj długości i skręty,
-   - wpleć naturalnie produkty UPLashes (rzęsy, pęsety, przygotowanie – cleaner/primer, klej, bonder).
-5. Podsumowanie – 1–2 zdania z motywacją do dalszej pracy i na co zwrócić uwagę przy kolejnej aplikacji.
+1. Gęstość i pokrycie linii rzęs  
+   - Opisz ogólną gęstość, równomierność, ewentualne przerwy.
 
-Długość: ok. 180–320 słów. Bez generycznych wstępów, bez kopiowania tego samego tekstu między różnymi klientkami. Każda odpowiedź ma brzmieć jak indywidualna analiza konkretnego zdjęcia.
-`;
+2. Kierunek i mapowanie  
+   - Jak wygląda kierunek rzęs, symetria, dopasowanie mapy do kształtu oka.
+
+3. Jakość aplikacji  
+   - Separacja, miejsce przyklejenia, podstawy rzęs, ewentualne sklejenia, kontrola kleju.
+
+4. Kondycja rzęs naturalnych  
+   - Widoczny stan naturalsów, napięcia, czy nie są przeciążone.
+
+5. Retencja i bezpieczeństwo – wskazówki  
+   - 3–6 praktycznych tipów jak poprawić trwałość i bezpieczeństwo (wilgotność, praca warstwowa, dobór grubości, klej itd.).
+
+6. Propozycje stylizacji na przyszłość  
+   - Co można zmienić przy kolejnej aplikacji (długości, skręty, strefy), żeby lepiej podkreślić to oko.
+
+Cały raport utrzymaj w granicach 250–450 słów, ale tak, aby był wyraźnie dopasowany do TEGO konkretnego zdjęcia.`;
 
     const userText =
       lang === "en"
-        ? "This is a lash extension photo of one eye. Please analyse the work according to the structure and rules above."
-        : "To jest zdjęcie aplikacji rzęs na jednym oku. Przeanalizuj pracę według struktury i zasad powyżej.";
+        ? "Here is the lash set photo. Analyse it and write the report in the structure described above."
+        : "To jest zdjęcie stylizacji rzęs. Przeanalizuj je i napisz raport w strukturze opisanej w instrukcji.";
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -160,13 +177,12 @@ Długość: ok. 180–320 słów. Bez generycznych wstępów, bez kopiowania teg
       },
     ];
 
-    // trochę wyższa temperatura = większa różnorodność odpowiedzi
     const text = await callOpenAI(messages, 0.55);
 
     if (!text) {
       return res.status(500).json({
         status: "error",
-        message: "Model nie zwrócił treści analizy.",
+        message: "AI nie zwróciło treści analizy.",
       });
     }
 
@@ -174,32 +190,18 @@ Długość: ok. 180–320 słów. Bez generycznych wstępów, bez kopiowania teg
       status: "success",
       result: text,
     });
-  } catch (err) {
-    console.error("Błąd w /analyze:", err);
+  } catch (error) {
+    console.error("Błąd /analyze:", error);
     res.status(500).json({
       status: "error",
-      message: "Wystąpił nieoczekiwany błąd podczas analizy zdjęcia.",
+      message: "Wystąpił błąd podczas analizy zdjęcia.",
     });
   }
 });
 
-
-    res.status(200).json({
-      status: "success",
-      result: text,
-    });
-  } catch (err) {
-    console.error("Błąd w /analyze:", err);
-    res.status(500).json({
-      status: "error",
-      message: "Wystąpił nieoczekiwany błąd podczas analizy zdjęcia.",
-    });
-  }
-});
-
-// ------------------------------
+// ─────────────────────────────────────────────
 //  START SERWERA
-// ------------------------------
+// ─────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`UPLashes – analiza stylizacji rzęs – backend słucha na porcie ${PORT}`);
+  console.log(`UPLashes – backend analizy działa na porcie ${PORT}`);
 });
