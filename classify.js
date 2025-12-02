@@ -18,8 +18,18 @@ function toDataUrl(imageBase64) {
 /**
  * 1. Klasyfikacja typu rzęs:
  *    natural / extensions / lift
+ *    overrideType – jeśli ustawione, omijamy klasyfikację i zwracamy to, co wymusiła stylistka
  */
-async function classifyLashesType(imageBase64) {
+async function classifyLashesType(imageBase64, overrideType = null) {
+  // Jeśli stylistka ręcznie wybrała typ – nie pytamy modelu, tylko zwracamy to
+  if (
+    overrideType === "natural" ||
+    overrideType === "extensions" ||
+    overrideType === "lift"
+  ) {
+    return overrideType;
+  }
+
   const dataUrl = toDataUrl(imageBase64);
 
   const completion = await client.chat.completions.create({
@@ -420,8 +430,14 @@ async function generateLashReport(
  * 3. Główna funkcja – używana w server.js
  *    language: "pl" | "en"
  *    reportMode: "standard" | "detailed" | "pro"
+ *    overrideType: "natural" | "extensions" | "lift" | null
  */
-async function analyzeEye(imageBase64, language, reportMode = "standard") {
+async function analyzeEye(
+  imageBase64,
+  language,
+  reportMode = "standard",
+  overrideType = null
+) {
   if (!imageBase64 || typeof imageBase64 !== "string") {
     return {
       status: "error",
@@ -435,8 +451,15 @@ async function analyzeEye(imageBase64, language, reportMode = "standard") {
       ? reportMode
       : "standard";
 
-  // 1: klasyfikacja
-  const lashesType = await classifyLashesType(imageBase64);
+  const override =
+    overrideType === "natural" ||
+    overrideType === "extensions" ||
+    overrideType === "lift"
+      ? overrideType
+      : null;
+
+  // 1: klasyfikacja (lub wymuszenie typu)
+  const lashesType = await classifyLashesType(imageBase64, override);
 
   // 2: raport
   const reportText = await generateLashReport(
