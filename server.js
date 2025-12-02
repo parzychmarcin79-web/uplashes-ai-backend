@@ -80,13 +80,18 @@ app.get("/status", (req, res) => {
 // ─────────────────────────────────────────────
 app.post("/analyze", async (req, res) => {
   try {
-    const { imageBase64, language } = req.body || {};
+    const { imageBase64, language } = req.body;
+    const data = await analyzeEye(imageBase64, language);
+    return res.json(data);
+  } catch (err) {
+    console.error("Analyze error:", err);
+    return res.status(500).json({
+      status: "error",
+      message: "Błąd serwera analizy."
+    });
+  }
+});
 
-    if (!imageBase64 || typeof imageBase64 !== "string") {
-      return res.status(400).json({
-        status: "error",
-        message: "Brakuje danych zdjęcia (imageBase64).",
-      });
     }
 
     const lang = language === "en" ? "en" : "pl";
