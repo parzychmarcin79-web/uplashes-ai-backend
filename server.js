@@ -30,43 +30,51 @@ app.get("/status", (req, res) => {
   if (!ensureApiKey()) {
     return res.status(500).json({
       status: "error",
-      message: "Brak klucza OPENAI_API_KEY po stronie serwera."
+      message: "Brak klucza OPENAI_API_KEY po stronie serwera.",
     });
   }
 
   return res.json({
     status: "live",
-    message: "UPLashes AI backend działa poprawnie."
+    message: "UPLashes AI backend działa poprawnie.",
   });
 });
 
 /**
  * ENDPOINT ANALIZY ZDJĘCIA
  * POST /analyze
- * body: { imageBase64: string, language: "pl" | "en" }
+ * body: {
+ *   imageBase64: string,
+ *   language: "pl" | "en",
+ *   reportMode?: "standard" | "detailed" | "pro"
+ * }
  */
 app.post("/analyze", async (req, res) => {
   try {
-    const { imageBase64, language } = req.body || {};
+    const { imageBase64, language, reportMode } = req.body || {};
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({
         status: "error",
-        message: "Brak obrazu w polu imageBase64."
+        message: "Brak obrazu w polu imageBase64.",
       });
     }
 
     const lang = language === "en" ? "en" : "pl";
+    const mode =
+      reportMode === "detailed" || reportMode === "pro"
+        ? reportMode
+        : "standard";
 
     // Główna logika jest w classify.js
-    const data = await analyzeEye(imageBase64, lang);
+    const data = await analyzeEye(imageBase64, lang, mode);
 
     return res.json(data);
   } catch (err) {
     console.error("Analyze error:", err);
     return res.status(500).json({
       status: "error",
-      message: "Błąd serwera analizy."
+      message: "Błąd serwera analizy.",
     });
   }
 });
@@ -75,7 +83,7 @@ app.post("/analyze", async (req, res) => {
 app.use((req, res) => {
   res.status(404).json({
     status: "error",
-    message: "Endpoint nie istnieje."
+    message: "Endpoint nie istnieje.",
   });
 });
 
