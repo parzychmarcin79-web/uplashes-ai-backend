@@ -28,7 +28,7 @@ async function classifyLashesType(imageBase64) {
         role: "system",
         content: [
           {
-            type: "text",
+            type: "input_text",
             text:
               "You are a lash styling expert and image analyst.\n\n" +
               "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
@@ -57,7 +57,7 @@ async function classifyLashesType(imageBase64) {
             image_url: { url: dataUrl }
           },
           {
-            type: "text",
+            type: "input_text",
             text: "Classify this eye photo."
           }
         ]
@@ -68,7 +68,10 @@ async function classifyLashesType(imageBase64) {
 
   let raw = "";
   try {
-    raw = (response.output?.[0]?.content?.[0]?.text || "").trim().toLowerCase();
+    // Responses API zwraca output_text – ale .text jest dalej w środku
+    raw = (response.output?.[0]?.content?.[0]?.text || "")
+      .trim()
+      .toLowerCase();
   } catch (err) {
     console.error("Error reading classification response:", err);
   }
@@ -216,13 +219,13 @@ async function generateLashReport(imageBase64, language, lashesType) {
     input: [
       {
         role: "system",
-        content: [{ type: "text", text: systemPrompt }]
+        content: [{ type: "input_text", text: systemPrompt }]
       },
       {
         role: "user",
         content: [
           { type: "input_image", image_url: { url: dataUrl } },
-          { type: "text", text: userPrompt }
+          { type: "input_text", text: userPrompt }
         ]
       }
     ]
