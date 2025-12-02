@@ -1,6 +1,6 @@
 // classify.js – klasyfikacja rzęs i generowanie raportu
 // Typy:
-//  - "natural"    – naturalne rzęsy, bez aplikacji
+//  - "natural"    – naturalne rzęsy, bez aplikacji i bez lash lift
 //  - "extensions" – rzęsy po przedłużaniu
 //  - "lift"       – lash lift / laminacja
 
@@ -23,6 +23,7 @@ async function classifyLashesType(imageBase64) {
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
+    text_format: "plain",
     input: [
       {
         role: "system",
@@ -30,19 +31,22 @@ async function classifyLashesType(imageBase64) {
           {
             type: "text",
             text:
-              "You are a lash styling expert and image analyst. " +
+              "You are a lash styling expert and image analyst.\n\n" +
               "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
-              "You MUST return STRICT JSON with one field: {\"type\":\"natural\"}, {\"type\":\"extensions\"} or {\"type\":\"lift\"}.\n\n" +
+              "You MUST answer with ONE WORD ONLY (lowercase):\n" +
+              "- natural\n" +
+              "- extensions\n" +
+              "- lift\n\n" +
               "Definitions:\n" +
               "- natural: no lash extensions, no lash lift/lamination. Pure natural lashes (with or without mascara).\n" +
               "- extensions: lash extensions applied (classic, volume, hybrid, any mapping). Visible added length, density, fans, bonding points.\n" +
               "- lift: lash lift / lamination / lash botox style treatment. Natural lashes are chemically lifted and fixed upwards, often with tint, but without added extensions.\n\n" +
               "Rules:\n" +
-              "- If you clearly see added synthetic lashes → choose \"extensions\".\n" +
-              "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → choose \"lift\".\n" +
-              "- If there is no sign of extensions or lift/lamination → choose \"natural\".\n" +
-              "- If you are unsure, pick the MOST LIKELY type based on the visual cues.\n" +
-              "Return ONLY JSON. No explanations."
+              "- If you clearly see added synthetic lashes → answer \"extensions\".\n" +
+              "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → answer \"lift\".\n" +
+              "- If there is no sign of extensions or lift/lamination → answer \"natural\".\n" +
+              "- If you are unsure, choose the MOST LIKELY type.\n" +
+              "Return only one word: natural, extensions or lift."
           }
         ]
       },
@@ -55,42 +59,26 @@ async function classifyLashesType(imageBase64) {
           },
           {
             type: "text",
-            text: "Classify this eye photo into: natural, extensions or lift."
+            text: "Classify this eye photo."
           }
         ]
       }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "lashes_type_schema",
-        schema: {
-          type: "object",
-          properties: {
-            type: {
-              type: "string",
-              enum: ["natural", "extensions", "lift"]
-            }
-          },
-          required: ["type"],
-          additionalProperties: false
-        },
-        strict: true
-      }
-    }
+    max_output_tokens: 5
   });
 
+  let raw = "";
   try {
-    const jsonText = response.output[0].content[0].text;
-    const parsed = JSON.parse(jsonText);
-    if (parsed.type === "natural" || parsed.type === "extensions" || parsed.type === "lift") {
-      return parsed.type;
-    }
+    raw = (response.output?.[0]?.content?.[0]?.text || "").trim().toLowerCase();
   } catch (err) {
-    console.error("Error parsing classification JSON:", err);
+    console.error("Error reading classification response:", err);
   }
 
-  // W razie wątpliwości – traktujemy jako stylizację (najczęstszy przypadek)
+  if (raw.includes("extension")) return "extensions";
+  if (raw.includes("lift")) return "lift";
+  if (raw.includes("natural")) return "natural";
+
+  // Bezpieczny fallback – większość zdjęć w produkcji to stylizacje
   return "extensions";
 }
 
@@ -101,7 +89,6 @@ async function generateLashReport(imageBase64, language, lashesType) {
   const dataUrl = toDataUrl(imageBase64);
   const isPL = language !== "en";
 
-  // SYSTEM PROMPT – wersje PL i EN dla 3 typów
   let systemPrompt;
 
   if (isPL) {
@@ -227,6 +214,7 @@ async function generateLashReport(imageBase64, language, lashesType) {
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
+    text_format: "plain",
     input: [
       {
         role: "system",
@@ -242,8 +230,8 @@ async function generateLashReport(imageBase64, language, lashesType) {
     ]
   });
 
-  const text = response.output[0].content[0].text || "";
-  return text.trim();
+  const text = (response.output?.[0]?.content?.[0]?.text || "").trim();
+  return text;
 }
 
 /**
