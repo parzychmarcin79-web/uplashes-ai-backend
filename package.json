@@ -1,6 +1,7 @@
 {
   "name": "uplashes-ai-backend",
   "version": "1.0.0",
+  "description": "UPLashes AI backend for lash styling analysis",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
