@@ -78,11 +78,42 @@ async function classifyLashesType(imageBase64) {
 }
 
 /**
- * 2. Generowanie raportu na podstawie typu rzęs + języka
+ * 2. Generowanie raportu na podstawie typu rzęs + języka + trybu raportu
+ *    reportMode: "standard" | "detailed" | "pro"
  */
-async function generateLashReport(imageBase64, language, lashesType) {
+async function generateLashReport(imageBase64, language, lashesType, reportMode = "standard") {
   const dataUrl = toDataUrl(imageBase64);
   const isPL = language !== "en";
+
+  // podpowiedź jak długi ma być raport
+  let lengthHintPL;
+  let lengthHintEN;
+
+  if (reportMode === "pro") {
+    lengthHintPL =
+      "Raport ma być NAJBARDZIEJ ROZBUDOWANY. " +
+      "W każdej sekcji wypisz 5–8 punktów, każdy punkt może mieć 1–2 zdania. " +
+      "Używaj języka eksperckiego (instruktor, szkolenie PRO), możesz podawać konkretne zakresy (np. długości, grubości, skręty).";
+    lengthHintEN =
+      "Make this the MOST DETAILED report. " +
+      "For each section write 5–8 bullet points, each 1–2 sentences. " +
+      "Use expert language (educator / PRO training level) and include numeric ranges where relevant (lengths, thickness, curls).";
+  } else if (reportMode === "detailed") {
+    lengthHintPL =
+      "Raport ma być SZCZEGÓŁOWY. " +
+      "W każdej sekcji wypisz 4–6 punktów, większość punktów może mieć 1–2 zdania.";
+    lengthHintEN =
+      "Make the report DETAILED. " +
+      "For each section write 4–6 bullet points, most points can be 1–2 sentences.";
+  } else {
+    // standard
+    lengthHintPL =
+      "Raport ma być ZWIĘZŁY, ale merytoryczny. " +
+      "W każdej sekcji wypisz 2–4 krótkie punkty (po jednym zdaniu).";
+    lengthHintEN =
+      "Keep the report CONCISE but informative. " +
+      "For each section write 2–4 short bullet points (one sentence each).";
+  }
 
   let systemPrompt;
 
@@ -93,7 +124,7 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
         "Analizujesz NATURALNE RZĘSY (bez aplikacji przedłużanych i bez liftingu/laminacji). " +
         "Przygotuj raport 'przed aplikacją'.\n\n" +
-        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Odpowiedź po polsku, w tej strukturze (zachowaj dokładnie te nagłówki):\n" +
         "Mocne strony naturalnych rzęs:\n" +
         "- ...\n\n" +
         "Elementy do poprawy:\n" +
@@ -105,13 +136,14 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Zasady:\n" +
         "- Nie pisz, że aplikacja została już wykonana.\n" +
         "- Skup się na gęstości, kondycji, kierunku wzrostu, przerzedzeniach.\n" +
-        "- W rekomendacjach sugeruj bezpieczne długości, grubości i skręty.";
+        "- W rekomendacjach sugeruj bezpieczne długości, grubości i skręty.\n\n" +
+        lengthHintPL;
     } else if (lashesType === "lift") {
       systemPrompt =
         "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
         "Analizujesz efekt LASH LIFT / laminacji rzęs (bez przedłużanych rzęs). " +
         "Przygotuj raport jakości zabiegu.\n\n" +
-        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Odpowiedź po polsku, w tej strukturze (zachowaj dokładnie te nagłówki):\n" +
         "Mocne strony zabiegu lash lift:\n" +
         "- ...\n\n" +
         "Elementy do poprawy:\n" +
@@ -123,14 +155,15 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Zasady:\n" +
         "- Nie pisz o przedłużaniu – mów o liftingu/laminacji.\n" +
         "- Oceń stopień podkręcenia, równomierność ułożenia, ewentualne przegięcia lub zagięcia.\n" +
-        "- Zwróć uwagę na kondycję włosa po zabiegu.";
+        "- Zwróć uwagę na kondycję włosa po zabiegu.\n\n" +
+        lengthHintPL;
     } else {
       // extensions
       systemPrompt =
         "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
         "Analizujesz RZĘSY PO APLIKACJI PRZEDŁUŻANYCH (stylizację). " +
         "Przygotuj raport jakości pracy stylistki.\n\n" +
-        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Odpowiedź po polsku, w tej strukturze (zachowaj dokładnie te nagłówki):\n" +
         "Mocne strony stylizacji:\n" +
         "- ...\n\n" +
         "Elementy do poprawy:\n" +
@@ -142,7 +175,8 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Zasady:\n" +
         "- Wyraźnie mów o aplikacji (przedłużanych rzęsach).\n" +
         "- Oceń gęstość, mapowanie długości, kierunek, sklejenia, dobór długości do natury.\n" +
-        "- Zawsze uwzględnij bezpieczeństwo naturalnych rzęs.";
+        "- Zawsze uwzględnij bezpieczeństwo naturalnych rzęs.\n\n" +
+        lengthHintPL;
     }
   } else {
     // ENGLISH
@@ -151,7 +185,7 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "You are a lash educator and image analysis expert. " +
         "You are analysing NATURAL LASHES (no extensions, no lift/lamination). " +
         "Prepare a pre-application report.\n\n" +
-        "Answer in English using this structure:\n" +
+        "Answer in English using this structure (keep these exact headings):\n" +
         "Strengths of the natural lashes:\n" +
         "- ...\n\n" +
         "Areas for improvement:\n" +
@@ -163,13 +197,14 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Rules:\n" +
         "- Do NOT say that extensions are already applied.\n" +
         "- Comment on density, growth direction, condition, thinning.\n" +
-        "- Suggest safe lengths, thicknesses and curls.";
+        "- Suggest safe lengths, thicknesses and curls.\n\n" +
+        lengthHintEN;
     } else if (lashesType === "lift") {
       systemPrompt =
         "You are a lash educator and image analysis expert. " +
         "You are analysing a LASH LIFT / lash lamination result (no extensions). " +
         "Prepare a quality report of the treatment.\n\n" +
-        "Answer in English using this structure:\n" +
+        "Answer in English using this structure (keep these exact headings):\n" +
         "Strengths of the lash lift:\n" +
         "- ...\n\n" +
         "Areas for improvement:\n" +
@@ -181,14 +216,15 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Rules:\n" +
         "- Do not talk about extensions – focus on lift/lamination.\n" +
         "- Evaluate curl, uniformity, any kinks or overprocessing.\n" +
-        "- Comment on lash condition after the treatment.";
+        "- Comment on lash condition after the treatment.\n\n" +
+        lengthHintEN;
     } else {
       // extensions
       systemPrompt =
         "You are a lash educator and image analysis expert. " +
         "You are analysing LASH EXTENSIONS (a finished set). " +
         "Prepare a styling quality report.\n\n" +
-        "Answer in English using this structure:\n" +
+        "Answer in English using this structure (keep these exact headings):\n" +
         "Strengths of the styling:\n" +
         "- ...\n\n" +
         "Areas for improvement:\n" +
@@ -200,13 +236,14 @@ async function generateLashReport(imageBase64, language, lashesType) {
         "Rules:\n" +
         "- Clearly talk about lash extensions, not bare lashes.\n" +
         "- Comment on density, mapping, direction, stickies, length-to-natural ratio.\n" +
-        "- Always include a note on natural lash safety.";
+        "- Always include a note on natural lash safety.\n\n" +
+        lengthHintEN;
     }
   }
 
   const userPrompt = isPL
-    ? "Przeanalizuj zdjęcie i przygotuj raport dokładnie według tej struktury."
-    : "Analyse the photo and prepare the report exactly using this structure.";
+    ? "Przeanalizuj zdjęcie i przygotuj raport dokładnie według tej struktury i wytycznych długości."
+    : "Analyse the photo and prepare the report exactly using this structure and length guidelines.";
 
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
@@ -236,8 +273,10 @@ async function generateLashReport(imageBase64, language, lashesType) {
 
 /**
  * 3. Główna funkcja – używana w server.js
+ *    language: "pl" | "en"
+ *    reportMode: "standard" | "detailed" | "pro"
  */
-async function analyzeEye(imageBase64, language) {
+async function analyzeEye(imageBase64, language, reportMode = "standard") {
   if (!imageBase64 || typeof imageBase64 !== "string") {
     return {
       status: "error",
@@ -246,16 +285,26 @@ async function analyzeEye(imageBase64, language) {
   }
 
   const lang = language === "en" ? "en" : "pl";
+  const mode =
+    reportMode === "detailed" || reportMode === "pro"
+      ? reportMode
+      : "standard";
 
   // 1: klasyfikacja
   const lashesType = await classifyLashesType(imageBase64);
 
   // 2: raport
-  const reportText = await generateLashReport(imageBase64, lang, lashesType);
+  const reportText = await generateLashReport(
+    imageBase64,
+    lang,
+    lashesType,
+    mode
+  );
 
   return {
     status: "success",
-    type: lashesType, // "natural", "extensions", "lift"
+    type: lashesType,      // "natural", "extensions", "lift"
+    mode,                  // "standard" | "detailed" | "pro"
     result: reportText
   };
 }
