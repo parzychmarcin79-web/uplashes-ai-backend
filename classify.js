@@ -1,17 +1,18 @@
 // classify.js – klasyfikacja rzęs i generowanie raportu
 // Typy:
-//  - "natural"    – naturalne rzęsy, bez aplikacji i bez lash lift
-//  - "extensions" – rzęsy po przedłużaniu
-//  - "lift"       – lash lift / laminacja
+//  - "natural"    – naturalne rzęsy (bez przedłużania i bez lash lift)
+//  - "extensions" – rzęsy po aplikacji przedłużanych
+//  - "lift"       – efekt lash lift / laminacji
 
 const OpenAI = require("openai");
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * Zamiana base64 na data URL
+ * Zamiana base64 na data URL używany w image_url
  */
 function toDataUrl(imageBase64) {
-  return `data:image/png;base64,${imageBase64}`;
+  // modelowi jest wszystko jedno czy png/jpg – ważne, żeby był poprawny prefix
+  return `data:image/jpeg;base64,${imageBase64}`;
 }
 
 /**
@@ -21,66 +22,58 @@ function toDataUrl(imageBase64) {
 async function classifyLashesType(imageBase64) {
   const dataUrl = toDataUrl(imageBase64);
 
-  const response = await client.responses.create({
-    model: "gpt-4.1-mini",
-    input: [
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [
       {
         role: "system",
-        content: [
-          {
-            type: "input_text",
-            text:
-              "You are a lash styling expert and image analyst.\n\n" +
-              "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
-              "You MUST answer with ONE WORD ONLY (lowercase):\n" +
-              "- natural\n" +
-              "- extensions\n" +
-              "- lift\n\n" +
-              "Definitions:\n" +
-              "- natural: no lash extensions, no lash lift/lamination. Pure natural lashes (with or without mascara).\n" +
-              "- extensions: lash extensions applied (classic, volume, hybrid, any mapping). Visible added length, density, fans, bonding points.\n" +
-              "- lift: lash lift / lamination / lash botox style treatment. Natural lashes are chemically lifted and fixed upwards, often with tint, but without added extensions.\n\n" +
-              "Rules:\n" +
-              "- If you clearly see added synthetic lashes → answer \"extensions\".\n" +
-              "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → answer \"lift\".\n" +
-              "- If there is no sign of extensions or lift/lamination → answer \"natural\".\n" +
-              "- If you are unsure, choose the MOST LIKELY type.\n" +
-              "Return only one word: natural, extensions or lift."
-          }
-        ]
+        content:
+          "You are a lash styling expert and image analyst.\n\n" +
+          "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
+          "You MUST answer with ONE WORD ONLY (lowercase):\n" +
+          "- natural\n" +
+          "- extensions\n" +
+          "- lift\n\n" +
+          "Definitions:\n" +
+          "- natural: no lash extensions, no lash lift/lamination. Pure natural lashes (with or without mascara).\n" +
+          "- extensions: lash extensions applied (classic, volume, hybrid, any mapping). Visible added length, density, fans, bonding points.\n" +
+          "- lift: lash lift / lamination / lash botox style treatment. Natural lashes are chemically lifted and fixed upwards, often with tint, but without added extensions.\n\n" +
+          "Rules:\n" +
+          "- If you clearly see added synthetic lashes → answer \"extensions\".\n" +
+          "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → answer \"lift\".\n" +
+          "- If there is no sign of extensions or lift/lamination → answer \"natural\".\n" +
+          "- If you are unsure, choose the MOST LIKELY type.\n" +
+          "Return only one word: natural, extensions or lift."
       },
       {
         role: "user",
         content: [
+          { type: "text", text: "Classify this eye photo." },
           {
-            type: "input_image",
+            type: "image_url",
             image_url: { url: dataUrl }
-          },
-          {
-            type: "input_text",
-            text: "Classify this eye photo."
           }
         ]
       }
-    ],
-    max_output_tokens: 5
+    ]
   });
 
   let raw = "";
   try {
-    // Responses API zwraca output_text – ale .text jest dalej w środku
-    raw = (response.output?.[0]?.content?.[0]?.text || "")
-      .trim()
-      .toLowerCase();
+    raw =
+      (completion.choices?.[0]?.message?.content || "")
+        .trim()
+        .toLowerCase() || "";
   } catch (err) {
-    console.error("Error reading classification response:", err);
+    console.error("Error reading classification completion:", err);
   }
 
   if (raw.includes("extension")) return "extensions";
   if (raw.includes("lift")) return "lift";
   if (raw.includes("natural")) return "natural";
 
-  // Bezpieczny fallback – większość zdjęć w produkcji to stylizacje
+  // Bezpieczny fallback – większość zdjęć w użyciu to stylizacje
   return "extensions";
 }
 
@@ -94,6 +87,7 @@ async function generateLashReport(imageBase64, language, lashesType) {
   let systemPrompt;
 
   if (isPL) {
+    // POLSKI
     if (lashesType === "natural") {
       systemPrompt =
         "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
@@ -214,24 +208,29 @@ async function generateLashReport(imageBase64, language, lashesType) {
     ? "Przeanalizuj zdjęcie i przygotuj raport dokładnie według tej struktury."
     : "Analyse the photo and prepare the report exactly using this structure.";
 
-  const response = await client.responses.create({
-    model: "gpt-4.1-mini",
-    input: [
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.4,
+    messages: [
       {
         role: "system",
-        content: [{ type: "input_text", text: systemPrompt }]
+        content: systemPrompt
       },
       {
         role: "user",
         content: [
-          { type: "input_image", image_url: { url: dataUrl } },
-          { type: "input_text", text: userPrompt }
+          { type: "text", text: userPrompt },
+          {
+            type: "image_url",
+            image_url: { url: dataUrl }
+          }
         ]
       }
     ]
   });
 
-  const text = (response.output?.[0]?.content?.[0]?.text || "").trim();
+  const text =
+    (completion.choices?.[0]?.message?.content || "").trim() || "";
   return text;
 }
 
