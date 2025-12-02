@@ -13,6 +13,13 @@ app.use(express.json({ limit: "10mb" })); // pozwala na duże base64
 // PORT z Render / lokalnie domyślnie 10000
 const PORT = process.env.PORT || 10000;
 
+// PROSTY LICZNIK ANALIZ
+let analysisCounter = 0;
+// Opcjonalny „limit” – ustaw np. MAX_ANALYSES=500 w Render, jak chcesz mieć informację „ile zostało”
+const MAX_ANALYSES = process.env.MAX_ANALYSES
+  ? parseInt(process.env.MAX_ANALYSES, 10)
+  : null;
+
 // Sprawdzenie klucza OpenAI (używane w /status)
 function ensureApiKey() {
   if (!process.env.OPENAI_API_KEY) {
@@ -31,12 +38,22 @@ app.get("/status", (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Brak klucza OPENAI_API_KEY po stronie serwera.",
+      analysisCounter,
+      remainingAnalyses:
+        MAX_ANALYSES != null
+          ? Math.max(MAX_ANALYSES - analysisCounter, 0)
+          : null
     });
   }
 
   return res.json({
     status: "live",
     message: "UPLashes AI backend działa poprawnie.",
+    analysisCounter,
+    remainingAnalyses:
+      MAX_ANALYSES != null
+        ? Math.max(MAX_ANALYSES - analysisCounter, 0)
+        : null
   });
 });
 
@@ -57,7 +74,7 @@ app.post("/analyze", async (req, res) => {
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({
         status: "error",
-        message: "Brak obrazu w polu imageBase64.",
+        message: "Brak obrazu w polu imageBase64."
       });
     }
 
@@ -78,12 +95,32 @@ app.post("/analyze", async (req, res) => {
     // Główna logika jest w classify.js
     const data = await analyzeEye(imageBase64, lang, mode, override);
 
-    return res.json(data);
+    if (!data || data.status !== "success") {
+      return res.status(500).json(
+        data || {
+          status: "error",
+          message: "Nie udało się przeprowadzić analizy."
+        }
+      );
+    }
+
+    // Zwiększamy licznik udanych analiz
+    analysisCounter += 1;
+    const remaining =
+      MAX_ANALYSES != null
+        ? Math.max(MAX_ANALYSES - analysisCounter, 0)
+        : null;
+
+    return res.json({
+      ...data,
+      analysisCounter,
+      remainingAnalyses: remaining
+    });
   } catch (err) {
     console.error("Analyze error:", err);
     return res.status(500).json({
       status: "error",
-      message: "Błąd serwera analizy.",
+      message: "Błąd serwera analizy."
     });
   }
 });
@@ -92,7 +129,7 @@ app.post("/analyze", async (req, res) => {
 app.use((req, res) => {
   res.status(404).json({
     status: "error",
-    message: "Endpoint nie istnieje.",
+    message: "Endpoint nie istnieje."
   });
 });
 
