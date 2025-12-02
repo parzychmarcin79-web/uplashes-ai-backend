@@ -1,12 +1,14 @@
 {
-  "name": "uplashes-backend-analyze",
+  "name": "uplashes-ai-backend",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "express": "^4.21.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "openai": "^4.20.0"
   }
 }
