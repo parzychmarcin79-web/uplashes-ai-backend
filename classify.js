@@ -23,7 +23,6 @@ async function classifyLashesType(imageBase64) {
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
-    text_format: "plain",
     input: [
       {
         role: "system",
@@ -214,7 +213,6 @@ async function generateLashReport(imageBase64, language, lashesType) {
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
-    text_format: "plain",
     input: [
       {
         role: "system",
