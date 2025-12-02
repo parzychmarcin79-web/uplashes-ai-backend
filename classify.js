@@ -1,11 +1,25 @@
+// classify.js – klasyfikacja rzęs i generowanie raportu
+// Typy:
+//  - "natural"    – naturalne rzęsy, bez aplikacji
+//  - "extensions" – rzęsy po przedłużaniu
+//  - "lift"       – lash lift / laminacja
+
 const OpenAI = require("openai");
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * 1. KLASYFIKACJA: naturalne rzęsy vs rzęsy po aplikacji
+ * Zamiana base64 na data URL
  */
-async function classifyLashes(imageBase64) {
-  const dataUrl = `data:image/png;base64,${imageBase64}`;
+function toDataUrl(imageBase64) {
+  return `data:image/png;base64,${imageBase64}`;
+}
+
+/**
+ * 1. Klasyfikacja typu rzęs:
+ *    natural / extensions / lift
+ */
+async function classifyLashesType(imageBase64) {
+  const dataUrl = toDataUrl(imageBase64);
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
@@ -16,13 +30,19 @@ async function classifyLashes(imageBase64) {
           {
             type: "text",
             text:
-              "You are an expert lash stylist and image analyst. " +
-              "Your ONLY task is to classify the lashes in the image.\n\n" +
-              "Return STRICT JSON {\"type\":\"natural\"} or {\"type\":\"extensions\"}.\n\n" +
+              "You are a lash styling expert and image analyst. " +
+              "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
+              "You MUST return STRICT JSON with one field: {\"type\":\"natural\"}, {\"type\":\"extensions\"} or {\"type\":\"lift\"}.\n\n" +
               "Definitions:\n" +
-              "- natural: no lash extensions applied, irregular length/direction, no bonding points.\n" +
-              "- extensions: visible added lashes, stronger density, uniform curl, bonding points.\n" +
-              "If unsure, choose the most likely option. DO NOT add explanations."
+              "- natural: no lash extensions, no lash lift/lamination. Pure natural lashes (with or without mascara).\n" +
+              "- extensions: lash extensions applied (classic, volume, hybrid, any mapping). Visible added length, density, fans, bonding points.\n" +
+              "- lift: lash lift / lamination / lash botox style treatment. Natural lashes are chemically lifted and fixed upwards, often with tint, but without added extensions.\n\n" +
+              "Rules:\n" +
+              "- If you clearly see added synthetic lashes → choose \"extensions\".\n" +
+              "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → choose \"lift\".\n" +
+              "- If there is no sign of extensions or lift/lamination → choose \"natural\".\n" +
+              "- If you are unsure, pick the MOST LIKELY type based on the visual cues.\n" +
+              "Return ONLY JSON. No explanations."
           }
         ]
       },
@@ -35,7 +55,7 @@ async function classifyLashes(imageBase64) {
           },
           {
             type: "text",
-            text: "Classify this eye."
+            text: "Classify this eye photo into: natural, extensions or lift."
           }
         ]
       }
@@ -49,7 +69,7 @@ async function classifyLashes(imageBase64) {
           properties: {
             type: {
               type: "string",
-              enum: ["natural", "extensions"]
+              enum: ["natural", "extensions", "lift"]
             }
           },
           required: ["type"],
@@ -61,34 +81,149 @@ async function classifyLashes(imageBase64) {
   });
 
   try {
-    return JSON.parse(response.output[0].content[0].text).type;
+    const jsonText = response.output[0].content[0].text;
+    const parsed = JSON.parse(jsonText);
+    if (parsed.type === "natural" || parsed.type === "extensions" || parsed.type === "lift") {
+      return parsed.type;
+    }
   } catch (err) {
-    return "extensions"; // default fallback
+    console.error("Error parsing classification JSON:", err);
   }
+
+  // W razie wątpliwości – traktujemy jako stylizację (najczęstszy przypadek)
+  return "extensions";
 }
 
 /**
- * 2. RAPORT: generowanie raportu na podstawie typu rzęs
+ * 2. Generowanie raportu na podstawie typu rzęs + języka
  */
-async function generateReport(imageBase64, language, lashesType) {
-  const dataUrl = `data:image/png;base64,${imageBase64}`;
+async function generateLashReport(imageBase64, language, lashesType) {
+  const dataUrl = toDataUrl(imageBase64);
   const isPL = language !== "en";
 
-  const systemTextPL =
-    lashesType === "natural"
-      ? "Analizujesz NATURALNE rzęsy. Przygotuj raport 'przed aplikacją'. Struktura: Mocne strony naturalnych rzęs, Elementy do poprawy, Rekomendacje techniczne, Kontrola jakości i bezpieczeństwo."
-      : "Analizujesz rzęsy PO APLIKACJI. Przygotuj raport stylizacji. Struktura: Mocne strony stylizacji, Elementy do poprawy, Rekomendacje techniczne, Kontrola jakości i bezpieczeństwo.";
+  // SYSTEM PROMPT – wersje PL i EN dla 3 typów
+  let systemPrompt;
 
-  const systemTextEN =
-    lashesType === "natural"
-      ? "You analyse NATURAL lashes. Prepare a pre-application report. Structure: Strengths, Areas for improvement, Technical recommendations, Quality & safety."
-      : "You analyse LASH EXTENSIONS. Prepare a styling report. Structure: Strengths, Areas for improvement, Technical recommendations, Quality & safety.";
-
-  const systemPrompt = isPL ? systemTextPL : systemTextEN;
+  if (isPL) {
+    if (lashesType === "natural") {
+      systemPrompt =
+        "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
+        "Analizujesz NATURALNE RZĘSY (bez aplikacji przedłużanych i bez liftingu/laminacji). " +
+        "Przygotuj raport 'przed aplikacją'.\n\n" +
+        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Mocne strony naturalnych rzęs:\n" +
+        "- ...\n\n" +
+        "Elementy do poprawy:\n" +
+        "- ...\n\n" +
+        "Rekomendacje techniczne (przedłużanie / lifting):\n" +
+        "- ...\n\n" +
+        "Kontrola jakości i bezpieczeństwo:\n" +
+        "- ...\n\n" +
+        "Zasady:\n" +
+        "- Nie pisz, że aplikacja została już wykonana.\n" +
+        "- Skup się na gęstości, kondycji, kierunku wzrostu, przerzedzeniach.\n" +
+        "- W rekomendacjach sugeruj bezpieczne długości, grubości i skręty.";
+    } else if (lashesType === "lift") {
+      systemPrompt =
+        "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
+        "Analizujesz efekt LASH LIFT / laminacji rzęs (bez przedłużanych rzęs). " +
+        "Przygotuj raport jakości zabiegu.\n\n" +
+        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Mocne strony zabiegu lash lift:\n" +
+        "- ...\n\n" +
+        "Elementy do poprawy:\n" +
+        "- ...\n\n" +
+        "Rekomendacje techniczne (czas, dobór wałeczków, produkty):\n" +
+        "- ...\n\n" +
+        "Kontrola jakości i bezpieczeństwo naturalnych rzęs:\n" +
+        "- ...\n\n" +
+        "Zasady:\n" +
+        "- Nie pisz o przedłużaniu – mów o liftingu/laminacji.\n" +
+        "- Oceń stopień podkręcenia, równomierność ułożenia, ewentualne przegięcia lub zagięcia.\n" +
+        "- Zwróć uwagę na kondycję włosa po zabiegu.";
+    } else {
+      // extensions
+      systemPrompt =
+        "Jesteś instruktorem stylizacji rzęs i ekspertem analizy zdjęć. " +
+        "Analizujesz RZĘSY PO APLIKACJI PRZEDŁUŻANYCH (stylizację). " +
+        "Przygotuj raport jakości pracy stylistki.\n\n" +
+        "Odpowiedź po polsku, w tej strukturze:\n" +
+        "Mocne strony stylizacji:\n" +
+        "- ...\n\n" +
+        "Elementy do poprawy:\n" +
+        "- ...\n\n" +
+        "Rekomendacje techniczne:\n" +
+        "- ...\n\n" +
+        "Kontrola jakości i bezpieczeństwo:\n" +
+        "- ...\n\n" +
+        "Zasady:\n" +
+        "- Wyraźnie mów o aplikacji (przedłużanych rzęsach).\n" +
+        "- Oceń gęstość, mapowanie długości, kierunek, sklejenia, dobór długości do natury.\n" +
+        "- Zawsze uwzględnij bezpieczeństwo naturalnych rzęs.";
+    }
+  } else {
+    // ENGLISH
+    if (lashesType === "natural") {
+      systemPrompt =
+        "You are a lash educator and image analysis expert. " +
+        "You are analysing NATURAL LASHES (no extensions, no lift/lamination). " +
+        "Prepare a pre-application report.\n\n" +
+        "Answer in English using this structure:\n" +
+        "Strengths of the natural lashes:\n" +
+        "- ...\n\n" +
+        "Areas for improvement:\n" +
+        "- ...\n\n" +
+        "Technical recommendations (extensions / lift):\n" +
+        "- ...\n\n" +
+        "Quality & safety control:\n" +
+        "- ...\n\n" +
+        "Rules:\n" +
+        "- Do NOT say that extensions are already applied.\n" +
+        "- Comment on density, growth direction, condition, thinning.\n" +
+        "- Suggest safe lengths, thicknesses and curls.";
+    } else if (lashesType === "lift") {
+      systemPrompt =
+        "You are a lash educator and image analysis expert. " +
+        "You are analysing a LASH LIFT / lash lamination result (no extensions). " +
+        "Prepare a quality report of the treatment.\n\n" +
+        "Answer in English using this structure:\n" +
+        "Strengths of the lash lift:\n" +
+        "- ...\n\n" +
+        "Areas for improvement:\n" +
+        "- ...\n\n" +
+        "Technical recommendations (timing, shields, products):\n" +
+        "- ...\n\n" +
+        "Quality & safety of the natural lashes:\n" +
+        "- ...\n\n" +
+        "Rules:\n" +
+        "- Do not talk about extensions – focus on lift/lamination.\n" +
+        "- Evaluate curl, uniformity, any kinks or overprocessing.\n" +
+        "- Comment on lash condition after the treatment.";
+    } else {
+      // extensions
+      systemPrompt =
+        "You are a lash educator and image analysis expert. " +
+        "You are analysing LASH EXTENSIONS (a finished set). " +
+        "Prepare a styling quality report.\n\n" +
+        "Answer in English using this structure:\n" +
+        "Strengths of the styling:\n" +
+        "- ...\n\n" +
+        "Areas for improvement:\n" +
+        "- ...\n\n" +
+        "Technical recommendations:\n" +
+        "- ...\n\n" +
+        "Quality & safety control:\n" +
+        "- ...\n\n" +
+        "Rules:\n" +
+        "- Clearly talk about lash extensions, not bare lashes.\n" +
+        "- Comment on density, mapping, direction, stickies, length-to-natural ratio.\n" +
+        "- Always include a note on natural lash safety.";
+    }
+  }
 
   const userPrompt = isPL
-    ? "Przygotuj kompletny raport."
-    : "Prepare the full report.";
+    ? "Przeanalizuj zdjęcie i przygotuj raport dokładnie według tej struktury."
+    : "Analyse the photo and prepare the report exactly using this structure.";
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
@@ -107,23 +242,33 @@ async function generateReport(imageBase64, language, lashesType) {
     ]
   });
 
-  return response.output[0].content[0].text.trim();
+  const text = response.output[0].content[0].text || "";
+  return text.trim();
 }
 
 /**
- * 3. GŁÓWNA FUNKCJA
+ * 3. Główna funkcja – używana w server.js
  */
 async function analyzeEye(imageBase64, language) {
-  // Krok 1: klasyfikacja
-  const lashesType = await classifyLashes(imageBase64);
+  if (!imageBase64 || typeof imageBase64 !== "string") {
+    return {
+      status: "error",
+      message: "Brak poprawnego obrazu w polu imageBase64."
+    };
+  }
 
-  // Krok 2: raport
-  const result = await generateReport(imageBase64, language, lashesType);
+  const lang = language === "en" ? "en" : "pl";
+
+  // 1: klasyfikacja
+  const lashesType = await classifyLashesType(imageBase64);
+
+  // 2: raport
+  const reportText = await generateLashReport(imageBase64, lang, lashesType);
 
   return {
     status: "success",
-    type: lashesType, // "natural" lub "extensions"
-    result
+    type: lashesType, // "natural", "extensions", "lift"
+    result: reportText
   };
 }
 
