@@ -91,10 +91,7 @@ app.post("/analyze", async (req, res) => {
     });
   }
 });
-
-    }
-
-    const lang = language === "en" ? "en" : "pl";
+const lang = language === "en" ? "en" : "pl";
 
     // System prompt – wersja PL / EN
     const systemPrompt =
