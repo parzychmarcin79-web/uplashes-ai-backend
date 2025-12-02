@@ -46,12 +46,13 @@ app.get("/status", (req, res) => {
  * body: {
  *   imageBase64: string,
  *   language: "pl" | "en",
- *   reportMode?: "standard" | "detailed" | "pro"
+ *   reportMode?: "standard" | "detailed" | "pro",
+ *   overrideType?: "natural" | "extensions" | "lift" | "auto"
  * }
  */
 app.post("/analyze", async (req, res) => {
   try {
-    const { imageBase64, language, reportMode } = req.body || {};
+    const { imageBase64, language, reportMode, overrideType } = req.body || {};
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({
@@ -66,8 +67,16 @@ app.post("/analyze", async (req, res) => {
         ? reportMode
         : "standard";
 
+    // overrideType może wskazać na natural / extensions / lift albo być ignorowane, jeśli "auto" / coś innego
+    const override =
+      overrideType === "natural" ||
+      overrideType === "extensions" ||
+      overrideType === "lift"
+        ? overrideType
+        : null;
+
     // Główna logika jest w classify.js
-    const data = await analyzeEye(imageBase64, lang, mode);
+    const data = await analyzeEye(imageBase64, lang, mode, override);
 
     return res.json(data);
   } catch (err) {
