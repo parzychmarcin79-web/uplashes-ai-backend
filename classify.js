@@ -20,71 +20,93 @@ function toDataUrl(imageBase64) {
  *    natural / extensions / lift
  *    overrideType – jeśli ustawione, omijamy klasyfikację i zwracamy to, co wymusiła stylistka
  */
-async function classifyLashesType(imageBase64, overrideType = null) {
-  // Jeśli stylistka ręcznie wybrała typ – nie pytamy modelu, tylko zwracamy to
-  if (
-    overrideType === "natural" ||
-    overrideType === "extensions" ||
-    overrideType === "lift"
-  ) {
-    return overrideType;
-  }
-
+/**
+ * 1. Klasyfikacja typu rzęs:
+ *    natural / extensions / lift
+ *    – najpierw sprawdzamy, czy WIDAĆ SZTUCZNE RZĘSY
+ *    – jeśli tak → zawsze "extensions" (nawet jeśli jest też lifting)
+ */
+async function classifyLashesType(imageBase64) {
   const dataUrl = toDataUrl(imageBase64);
 
-  const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
-    messages: [
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: [
       {
         role: "system",
-        content:
-          "You are a lash styling expert and image analyst.\n\n" +
-          "Your ONLY task is to classify what type of lashes are present on the eye photo.\n\n" +
-          "You MUST answer with ONE WORD ONLY (lowercase):\n" +
-          "- natural\n" +
-          "- extensions\n" +
-          "- lift\n\n" +
-          "Definitions:\n" +
-          "- natural: no lash extensions, no lash lift/lamination. Pure natural lashes (with or without mascara).\n" +
-          "- extensions: lash extensions applied (classic, volume, hybrid, any mapping). Visible added length, density, fans, bonding points.\n" +
-          "- lift: lash lift / lamination / lash botox style treatment. Natural lashes are chemically lifted and fixed upwards, often with tint, but without added extensions.\n\n" +
-          "Rules:\n" +
-          "- If you clearly see added synthetic lashes → answer \"extensions\".\n" +
-          "- If lashes are noticeably lifted upwards in a uniform arc, but there are NO synthetic extensions → answer \"lift\".\n" +
-          "- If there is no sign of extensions or lift/lamination → answer \"natural\".\n" +
-          "- If you are unsure, choose the MOST LIKELY type.\n" +
-          "Return only one word: natural, extensions or lift."
+        content: [
+          {
+            type: "input_text",
+            text:
+              "You are a lash styling trainer and image analyst.\n\n" +
+              "Your FIRST and MAIN task is to decide if there are any SYNTHETIC LASH EXTENSIONS attached to the natural lashes.\n\n" +
+              "Decision rules:\n" +
+              "1) If you see any synthetic extensions (longer, darker, thicker fibres bonded along the lash line, visible attachment points, fans, volume / classic set) – then:\n" +
+              '   - set \"has_extensions\": \"yes\"\n' +
+              "   - even if the lashes also look lifted or laminated.\n\n" +
+              "2) Only if you are sure there are NO extensions, check for lash lift / lamination:\n" +
+              "   - natural lashes uniformly lifted from the root in a smooth arc,\n" +
+              "   - often tinted, but no visible added synthetic fibres.\n" +
+              '   If so, set \"has_lift\": \"yes\".\n\n" +
+              "3) If there are no extensions and no clear lift/lamination, treat it as natural lashes.\n\n" +
+              "Always be conservative: if you are unsure whether something is lash lift or extensions, but you SEE POSSIBLE ARTIFICIAL LASHES → treat it as extensions.\n\n" +
+              "Respond ONLY with compact JSON, no explanation, for example:\n" +
+              '{\"has_extensions\":\"yes\",\"has_lift\":\"no\"}\n'
+          }
+        ]
       },
       {
         role: "user",
         content: [
-          { type: "text", text: "Classify this eye photo." },
+          { type: "input_image", image_url: dataUrl },
           {
-            type: "image_url",
-            image_url: { url: dataUrl }
+            type: "input_text",
+            text:
+              "Analyse this eye photo and reply ONLY with JSON in the form: " +
+              '{"has_extensions":"yes/no","has_lift":"yes/no"}.'
           }
         ]
       }
     ]
   });
 
-  let raw = "";
+  // Pobranie tekstu z odpowiedzi
+  const rawText =
+    response.output?.[0]?.content?.[0]?.text?.trim() || "";
+
+  let hasExtensions = false;
+  let hasLift = false;
+
+  // Spróbuj sparsować JSON
   try {
-    raw =
-      (completion.choices?.[0]?.message?.content || "")
-        .trim()
-        .toLowerCase() || "";
-  } catch (err) {
-    console.error("Error reading classification completion:", err);
+    const cleaned = rawText
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const obj = JSON.parse(cleaned);
+
+    if (typeof obj.has_extensions === "string") {
+      hasExtensions = obj.has_extensions.toLowerCase().startsWith("y");
+    }
+    if (typeof obj.has_lift === "string") {
+      hasLift = obj.has_lift.toLowerCase().startsWith("y");
+    }
+  } catch (e) {
+    console.error("JSON parse error in classifyLashesType:", e);
+    const lower = rawText.toLowerCase();
+    if (lower.includes("has_extensions") && lower.includes("yes")) {
+      hasExtensions = true;
+    }
+    if (lower.includes("has_lift") && lower.includes("yes")) {
+      hasLift = true;
+    }
   }
 
-  if (raw.includes("extension")) return "extensions";
-  if (raw.includes("lift")) return "lift";
-  if (raw.includes("natural")) return "natural";
-
-  // Bezpieczny fallback – większość zdjęć w użyciu to stylizacje
-  return "extensions";
+  // Logika końcowa:
+  if (hasExtensions) return "extensions";
+  if (hasLift) return "lift";
+  return "natural";
 }
 
 /**
