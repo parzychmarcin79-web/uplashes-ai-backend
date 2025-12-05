@@ -13,12 +13,9 @@ app.use(express.json({ limit: "10mb" })); // pozwala na duże base64
 // PORT z Render / lokalnie domyślnie 10000
 const PORT = process.env.PORT || 10000;
 
-// PROSTY LICZNIK ANALIZ
+// Wersja backendu i prosty licznik analiz
+const BACKEND_VERSION = "1.1.0";
 let analysisCounter = 0;
-// Opcjonalny „limit” – ustaw np. MAX_ANALYSES=500 w Render, jak chcesz mieć informację „ile zostało”
-const MAX_ANALYSES = process.env.MAX_ANALYSES
-  ? parseInt(process.env.MAX_ANALYSES, 10)
-  : null;
 
 // Sprawdzenie klucza OpenAI (używane w /status)
 function ensureApiKey() {
@@ -38,22 +35,15 @@ app.get("/status", (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Brak klucza OPENAI_API_KEY po stronie serwera.",
-      analysisCounter,
-      remainingAnalyses:
-        MAX_ANALYSES != null
-          ? Math.max(MAX_ANALYSES - analysisCounter, 0)
-          : null
+      version: BACKEND_VERSION
     });
   }
 
   return res.json({
     status: "live",
     message: "UPLashes AI backend działa poprawnie.",
-    analysisCounter,
-    remainingAnalyses:
-      MAX_ANALYSES != null
-        ? Math.max(MAX_ANALYSES - analysisCounter, 0)
-        : null
+    version: BACKEND_VERSION,
+    analysisCounter
   });
 });
 
@@ -62,14 +52,14 @@ app.get("/status", (req, res) => {
  * POST /analyze
  * body: {
  *   imageBase64: string,
- *   language: "pl" | "en",
- *   reportMode?: "standard" | "detailed" | "pro",
- *   overrideType?: "natural" | "extensions" | "lift" | "auto"
+ *   language?: "pl" | "en",
+ *   mode?: "standard" | "detailed" | "pro",
+ *   setType?: "auto" | "natural" | "extensions" | "lift"
  * }
  */
 app.post("/analyze", async (req, res) => {
   try {
-    const { imageBase64, language, reportMode, overrideType } = req.body || {};
+    const { imageBase64, language, mode, setType } = req.body || {};
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({
@@ -78,43 +68,40 @@ app.post("/analyze", async (req, res) => {
       });
     }
 
-    const lang = language === "en" ? "en" : "pl";
-    const mode =
-      reportMode === "detailed" || reportMode === "pro"
-        ? reportMode
-        : "standard";
-
-    // overrideType może wskazać na natural / extensions / lift albo być ignorowane, jeśli "auto" / coś innego
-    const override =
-      overrideType === "natural" ||
-      overrideType === "extensions" ||
-      overrideType === "lift"
-        ? overrideType
-        : null;
-
-    // Główna logika jest w classify.js
-    const data = await analyzeEye(imageBase64, lang, mode, override);
-
-    if (!data || data.status !== "success") {
-      return res.status(500).json(
-        data || {
-          status: "error",
-          message: "Nie udało się przeprowadzić analizy."
-        }
-      );
+    // Prosty limit długości base64 (żeby ktoś nie wrzucał giganta)
+    const maxLength = 15 * 1024 * 1024; // ~15 MB base64
+    if (imageBase64.length > maxLength) {
+      return res.status(413).json({
+        status: "error",
+        message: "Obraz jest zbyt duży do analizy."
+      });
     }
 
-    // Zwiększamy licznik udanych analiz
-    analysisCounter += 1;
-    const remaining =
-      MAX_ANALYSES != null
-        ? Math.max(MAX_ANALYSES - analysisCounter, 0)
-        : null;
+    const lang = language === "en" ? "en" : "pl";
 
+    // Tryb raportu – na razie tylko informacyjnie (logika jest w classify.js)
+    const allowedModes = ["standard", "detailed", "pro"];
+    const safeMode = allowedModes.includes(mode) ? mode : "standard";
+
+    // Typ zestawu – na razie informacyjnie (klasyfikację robi analyzeEye)
+    const allowedSetTypes = ["auto", "natural", "extensions", "lift"];
+    const safeSetType = allowedSetTypes.includes(setType)
+      ? setType
+      : "auto";
+
+    // Główna logika jest w classify.js
+    const data = await analyzeEye(imageBase64, lang);
+
+    // Zwiększamy licznik tylko dla udanych analiz
+    if (data && data.status === "success") {
+      analysisCounter++;
+    }
+
+    // Doklejamy info o trybie i typie, żeby front mógł je pokazać
     return res.json({
       ...data,
-      analysisCounter,
-      remainingAnalyses: remaining
+      mode: safeMode,
+      setType: safeSetType
     });
   } catch (err) {
     console.error("Analyze error:", err);
